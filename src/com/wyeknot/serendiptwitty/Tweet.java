@@ -12,7 +12,7 @@ public class Tweet {
 
 	public static final SimpleDateFormat stanfordTweetDateParser = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-	Tweet(long id) {
+	public Tweet(long id) {
 		this.id = id;
 		user = null;
 		timestamp = null;

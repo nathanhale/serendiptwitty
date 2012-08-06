@@ -30,63 +30,64 @@ import edu.stanford.nlp.ling.CoreLabel;
 
 public class GraphManager {
 
-	//TODO: try this with some of these edges being directed
-
 	public enum EdgeTypes {
 		//Connects a tweet to the user who created it
-		EDGE_TYPE_AUTHORSHIP (1),//, (1.0 / 24)),
+		
+		EDGE_TYPE_AUTHORSHIP (1, 1, false, true),
 		//Connects a tweet to all of the followers of the tweeter
-		EDGE_TYPE_FOLLOWER   (2),//, (1.0 / 24)),
+		EDGE_TYPE_FOLLOWER   (2, 1, true, false),
 		//Connects the retweet to the original tweeter
-		EDGE_TYPE_RETWEET    (3),//, (1.0 / 24)),
+		EDGE_TYPE_RETWEET    (3, 1, false, true),
 		//Connects the tweets of the followees of the person being retweeted to the retweeter
-		EDGE_TYPE_RETWEET_FOLLOWEES (4),//, (3.0 / 24)),
+		EDGE_TYPE_RETWEET_FOLLOWEES (4, 1, true, false),
 		//Connects the tweets of the person being retweeted to the followers of the retweeter
-		EDGE_TYPE_RETWEET_FOLLOWERS (5),//, (3.0 / 24)),
+		EDGE_TYPE_RETWEET_FOLLOWERS (5, 1, true, false),
 		//Connects the tweet to the person being mentioned
-		EDGE_TYPE_MENTION (6),//, (1.0 / 24)),
+		EDGE_TYPE_MENTION (6, 1, false, true),
 		//Connects the tweets of the followees of the person being mentioned to the mentioner
-		EDGE_TYPE_MENTION_FOLLOWEES (7),//, (3.0 / 24)),
+		EDGE_TYPE_MENTION_FOLLOWEES (7, 1, true, false),
 		//Connects the tweets of the person being mentioned to the followers of the mentioner
-		EDGE_TYPE_MENTION_FOLLOWERS (8),//, (3.0 / 24)),
+		EDGE_TYPE_MENTION_FOLLOWERS (8, 1, true, false),
 		//Connects the tweet to the person being @replied to
-		EDGE_TYPE_AT_REPLY (9),//, (1.0 / 24)),
+		EDGE_TYPE_AT_REPLY (9, 1, false, true),
 		//Connects the tweets of the person being @replied to to the tweeter
-		EDGE_TYPE_AT_REPLY_CONTENT (10),//, (1.0 / 24)),
-		EDGE_TYPE_HASHTAG (11),//, (3.0 / 24)),
-		EDGE_TYPE_CONTENT (12);//, (3.0 / 24));
-		/*
-		 * If another type is added after content, then numTypes must be updated accordingly! 
-		 */
+		EDGE_TYPE_AT_REPLY_CONTENT (10, 1, true, false),
+		EDGE_TYPE_HASHTAG (11, 1, true, true),
+		EDGE_TYPE_CONTENT (12, 1, true, true);
+		
+		//TODO: definitely would like to try out the content edges as directed from users to tweets or vice versa. Though perhaps it makes the most sense bidirectional
 
 		private final int id;
-		//private final double probability;
-		//private static final int numTypes = EDGE_TYPE_CONTENT.id;
+		private final double probability;
+		private final boolean tweetToUserDir;
+		private final boolean userToTweetDir;
 
-		private EdgeTypes(int id) {//, double probability) {
+		private EdgeTypes(int id, double probability, boolean tweetToUser, boolean userToTweet) {
 			this.id = id;
-			//this.probability = probability;
+			this.probability = probability;
+			this.tweetToUserDir = tweetToUser;
+			this.userToTweetDir = userToTweet;
 		}
 
 		public int id() { return id; }
-		//public double probability() { return probability; }
+		public double probability() { return probability; }
 	}
 
-	/*private EdgeTypes[] idToEdgeType = {
-			null,
-			EdgeTypes.EDGE_TYPE_AUTHORSHIP,
-			EdgeTypes.EDGE_TYPE_FOLLOWER,
-			EdgeTypes.EDGE_TYPE_RETWEET,
-			EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWEES,
-			EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWERS,
-			EdgeTypes.EDGE_TYPE_MENTION,
-			EdgeTypes.EDGE_TYPE_MENTION_FOLLOWEES,
-			EdgeTypes.EDGE_TYPE_MENTION_FOLLOWERS,
-			EdgeTypes.EDGE_TYPE_AT_REPLY,
-			EdgeTypes.EDGE_TYPE_AT_REPLY_CONTENT,
-			EdgeTypes.EDGE_TYPE_HASHTAG,
-			EdgeTypes.EDGE_TYPE_CONTENT
-	};*/
+	private static final EdgeTypes[] idToEdgeType = {
+		null,
+		EdgeTypes.EDGE_TYPE_AUTHORSHIP,
+		EdgeTypes.EDGE_TYPE_FOLLOWER,
+		EdgeTypes.EDGE_TYPE_RETWEET,
+		EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWEES,
+		EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWERS,
+		EdgeTypes.EDGE_TYPE_MENTION,
+		EdgeTypes.EDGE_TYPE_MENTION_FOLLOWEES,
+		EdgeTypes.EDGE_TYPE_MENTION_FOLLOWERS,
+		EdgeTypes.EDGE_TYPE_AT_REPLY,
+		EdgeTypes.EDGE_TYPE_AT_REPLY_CONTENT,
+		EdgeTypes.EDGE_TYPE_HASHTAG,
+		EdgeTypes.EDGE_TYPE_CONTENT
+	};
 
 	private static class Pair<F, S> {
 		private F first;
@@ -99,6 +100,24 @@ public class GraphManager {
 
 		public F getFirst() { return first; }
 		public S getSecond() { return second; }
+
+		public int hashCode() {
+			return first.hashCode() + second.hashCode();
+		}
+
+		public boolean equals(Object o) {
+			if (!(o instanceof GraphManager.Pair<?,?>)) {
+				return false;
+			}
+
+			@SuppressWarnings("unchecked")
+			Pair<F,S> obj = (Pair<F,S>)o;
+			if (first.equals(obj.first) && second.equals(obj.second)) {
+				return true;
+			}
+
+			return false;
+		}
 	}
 
 	public static class Edge {
@@ -142,11 +161,13 @@ public class GraphManager {
 	private HashSet<Tweet> tweetBatch;
 	private HashSet<Edge> edgeBatch;
 
-	private static final int MAX_ITERATIONS = 15;
+	private static final int MAX_ITERATIONS = 10;
 
 	//Values closer to 0 put more weight on the original score
-	private static final double lambdaUsers = 0.85;
-	private static final double lambdaTweets = 0.9;
+	private static final double lambdaUsers = 0.65;
+	private static final double lambdaTweets = 0.85;
+
+	private static final double MAX_USER_SCORE_MULTIPLIER = 1.5;
 
 	GraphManager(DatabaseInterface database, LuceneIndexManager index, String distinguishedUser, Set<String> otherDistinguishedUsers) {
 		this.database = database;
@@ -199,12 +220,22 @@ public class GraphManager {
 				edgeBatch.clear();
 			}
 
+			
+			Date d2 = new Date();
+			System.out.println("Finished creating the edges at " + d2 + 
+					", " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
+			System.out.println("Now cluster");
+			
 			database.clusterEdges();
 			database.clusterTweetsById();
 			
-			//TODO: do the stuff from edgesCopy here
+			System.out.println("Finished clustering at " + d2 + 
+					", " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
+			System.out.println("Now create edges_tweetids");
+			
+			database.createAndClusterEdgesTweetIds();
+			database.analyzeTables();
 
-			Date d2 = new Date();
 
 			System.out.println("Started creating the graph at " + d1 + " and finished at " + d2);
 			System.out.println("Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
@@ -235,7 +266,7 @@ public class GraphManager {
 			String tweeter = database.getNameFromCurrentCursorPos();
 			long tweetId = database.getTweetIdFromCurrentCursorPos();
 
-			if ((numTweets % 100) == 0) {
+			if ((numTweets % 1000) == 0) {
 				Date d2 = new Date();
 				System.out.print("tweet " + numTweets + " by " + tweeter);
 				System.out.println("  ~" + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
@@ -337,25 +368,41 @@ public class GraphManager {
 		Matcher m = rtRegExPattern.matcher(tweet);
 		while (m.find()) {
 			String match = m.group();
-			users.add(match.substring(rtPatternNameStart).toLowerCase());
+			String user = match.substring(rtPatternNameStart).toLowerCase();
+			if (user.length() >= 32) {
+				continue;
+			}
+			users.add(user);
 		}
 
 		m = rtRegExPattern2.matcher(tweet);
 		while (m.find()) {
 			String match = m.group();
-			users.add(match.substring(rtPattern2NameStart).toLowerCase());
+			String user = match.substring(rtPattern2NameStart).toLowerCase();
+			if (user.length() >= 32) {
+				continue;
+			}
+			users.add(user);
 		}
 
 		m = rtRegExPattern3.matcher(tweet);
 		while (m.find()) {
 			String match = m.group();
-			users.add(match.substring(rtPattern3NameStart).toLowerCase());
+			String user = match.substring(rtPattern3NameStart).toLowerCase();
+			if (user.length() >= 32) {
+				continue;
+			}
+			users.add(user);
 		}
 
 		m = rtRegExPattern4.matcher(tweet);
 		while (m.find()) {
 			String match = m.group();
-			users.add(match.substring(rtPattern4NameStart).toLowerCase());
+			String user = match.substring(rtPattern4NameStart).toLowerCase();
+			if (user.length() >= 32) {
+				continue;
+			}
+			users.add(user);
 		}
 
 		return users;
@@ -364,11 +411,16 @@ public class GraphManager {
 	private String findAtReply(String tweet) {
 		Matcher m = atReplyRegExPattern.matcher(tweet);
 
+		String user = null;
+		
 		while (m.find()) {
-			return m.group().substring(1).toLowerCase();
+			user = m.group().substring(1).toLowerCase();
+			if (user.length() > 32) {
+				user = null;
+			}
 		}
 
-		return null;
+		return user;
 	}
 
 	private Set<String> findMentionedUsers(String tweet, Set<String> retweetedUsers) {
@@ -386,7 +438,7 @@ public class GraphManager {
 			if (m.start() == 0) {
 				//This is an @reply -- ignore it here
 			}
-			else if (!retweetedUsers.contains(user)) {
+			else if (!retweetedUsers.contains(user) && (user.length() < 32)) {
 				users.add(user);
 			}
 		}
@@ -419,17 +471,17 @@ public class GraphManager {
 		database.acquireCursorForTweetVertices();
 
 		String tweet = null;
-		
+
 		int numTweets = 0;
 		Date d1 = new Date();
 
 		System.out.println("Start finding content edges at " + d1);
-		
+
 		while (null != (tweet = database.getNextTweetFromCursor())) {
 			String tweeter = database.getNameFromCurrentCursorPos();
 			Long tweetId = Long.valueOf(database.getTweetIdFromCurrentCursorPos());
-			
-			if ((++numTweets % 100) == 0) {
+
+			if ((++numTweets % 1000) == 0) {
 				Date d2 = new Date();
 				System.out.println("Detecting entities for tweet " + numTweets + " tweetId is " + tweetId + " -- " + d2);
 				System.out.println("Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds so far");
@@ -498,7 +550,7 @@ public class GraphManager {
 				}
 			}
 		}
-		
+
 		System.out.println("There were " + entities.size() + " entities");
 
 		for (Pair<List<Pair<Long,String>>,Set<String>> edges : entities.values()) {
@@ -514,7 +566,7 @@ public class GraphManager {
 				}
 			}
 		}
-		
+
 		System.out.println("There were " + hashtags.size() + " hashtags");
 
 		for (Pair<List<Pair<Long,String>>,Set<String>> edges : hashtags.values()) {
@@ -529,7 +581,7 @@ public class GraphManager {
 				}
 			}
 		}
-		
+
 		Date d2 = new Date();
 		System.out.println("Finished adding content edges at " + d2 + "\nRoughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds passed in that time");
 	}
@@ -571,24 +623,11 @@ public class GraphManager {
 
 	//TODO: add comment separators to delineate which parts of the code are for which purpose
 
-	private void updateTweetsFromUser(String userName, double userScore, List<Pair<Integer,Long>> edgeTypeAndDest,
-			Map<Long,Double> updatedTweetScores) {
-
-		//Can this be done more efficiently? I can think of a way in C, but it still requires iterating -- think on it
-		//This applies to the tweet version as well
-		/*int[] numEdgesPerType = new int[EdgeTypes.numTypes];
+	private void updateTweetsFromUser(String userName, double userScore, Set<Pair<Integer,Long>> edgeTypeAndDest,
+			Map<Long,Double> updatedTweetScores, double totalEdgeWeight) {
 
 		for (Pair<Integer,Long> t : edgeTypeAndDest) {
-			//Remember, edgeTypes are 1-based, but our array is zero-based
-			numEdgesPerType[t.getFirst() - 1]++;
-		}*/
-
-		for (Pair<Integer,Long> t : edgeTypeAndDest) {
-
-			//int numEdgesForThisType = numEdgesPerType[t.getFirst() - 1];
-
-			//double chanceOfGoingToTweet = (1.0 / numEdgesForThisType) * idToEdgeType[t.getFirst()].probability();
-			double chanceOfGoingToTweet = (1.0 / edgeTypeAndDest.size());
+			double chanceOfGoingToTweet = (idToEdgeType[t.getFirst()].probability() / totalEdgeWeight);
 			double scoreEffectFromThisEdge = chanceOfGoingToTweet * userScore * lambdaTweets;
 
 			Long tweetId = t.getSecond();
@@ -602,35 +641,13 @@ public class GraphManager {
 				updatedTweetScores.put(tweetId, Double.valueOf(newScore));
 			}
 		}
-
-		//double doppelgangerScore = 0;
-
-		/*for (EdgeTypes t :  EdgeTypes.values()) {
-			if (numEdgesPerType[t.id() - 1] == 0) {
-				doppelgangerScore += lambdaTweets * t.probability() * userScore;
-			}
-		}
-
-		database.updateUserDoppelgangerScore(userName, doppelgangerScore);*/
 	}
 
-	private void updateUsersFromTweet(long tweetId, double tweetScore, List<Pair<Integer,String>> edgeTypeAndDest,
-			Map<String,Double> updatedUserScores) {
-
-		/* Each edge type is visited with a particular probability. */ 
-		/*int[] numEdgesPerType = new int[EdgeTypes.numTypes];
+	private void updateUsersFromTweet(long tweetId, double tweetScore, Set<Pair<Integer,String>> edgeTypeAndDest,
+			Map<String,Double> updatedUserScores, double totalEdgeWeight) {
 
 		for (Pair<Integer,String> t : edgeTypeAndDest) {
-			//Remember, edgeTypes are 1-based, but our array is zero-based
-			numEdgesPerType[t.getFirst() - 1]++;
-		}*/
-
-		for (Pair<Integer,String> t : edgeTypeAndDest) {
-
-			//int numEdgesForThisType = numEdgesPerType[t.getFirst() - 1];
-
-			//double chanceOfGoingToUser = (1.0 / numEdgesForThisType) * idToEdgeType[t.getFirst()].probability();
-			double chanceOfGoingToUser = 1.0 / edgeTypeAndDest.size();
+			double chanceOfGoingToUser = idToEdgeType[t.getFirst()].probability() / totalEdgeWeight;
 			double scoreEffectFromThisEdge = chanceOfGoingToUser * tweetScore * lambdaUsers;
 
 			String userName = t.getSecond();
@@ -644,50 +661,42 @@ public class GraphManager {
 				updatedUserScores.put(userName, Double.valueOf(newScore));
 			}
 		}
-
-		/*double doppelgangerScore = 0;
-
-		for (EdgeTypes t :  EdgeTypes.values()) {
-			if (numEdgesPerType[t.id() - 1] == 0) {
-				doppelgangerScore += lambdaUsers * t.probability() * tweetScore;
-			}
-		}
-
-		database.updateTweetDoppelgangerScore(tweetId, doppelgangerScore);*/
 	}
 
-	private int updateTweetScores() {
-		
+	private void updateTweetScores() {
+
 		Date d1 = new Date();
 		System.out.println("acquireCursorForUpdating Tweet Scores at " + d1);
 		database.acquireCursorForUpdatingTweetScores();
 		Date d2 = new Date();
-		System.out.print("acquired cursor at " + d2 + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds so far");
+		System.out.println("acquired cursor at " + d2 + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + 
+				" seconds so far");
 
 		long tweetId = -1;
 
 		String userName = null;
 		String lastUserName = null;
 		double lastUserScore = -1;
+		double lastUserTotalEdgeWeight = 0;
+
+		double scoreTotalFromVerticesWithNoExit = 0;
 
 		//Holds a record of the scores of all the tweets that we've updated the score for
 		Map<Long,Double> updatedTweetScores = new HashMap<Long,Double>();
 
-		List<Pair<Integer,Long>> currentUserEdgeTypesAndDestinations = new ArrayList<Pair<Integer,Long>>();
-
-		int numEdges = 0;
+		Set<Pair<Integer,Long>> currentUserEdgeTypesAndDestinations = new HashSet<Pair<Integer,Long>>();
 		
-		while (null != (userName = database.getNextNameFromCursor())) {
-
-			if ((numEdges % 500000) == 0) {
-				d2 = new Date();
-				System.out.print("examining an edge from user " + userName + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds so far");
-				System.out.println(" -- tweetScoresSize is " + updatedTweetScores.size());
-			}
-			
+		while (null != (userName = database.getNextNameFromCursor())) {			
 			if (!userName.equals(lastUserName) && (lastUserName != null)) {
-				updateTweetsFromUser(lastUserName, lastUserScore, currentUserEdgeTypesAndDestinations, updatedTweetScores);
-				currentUserEdgeTypesAndDestinations.clear();
+				if (currentUserEdgeTypesAndDestinations.isEmpty()) {
+					scoreTotalFromVerticesWithNoExit += lastUserScore;
+				}
+				else {
+					updateTweetsFromUser(lastUserName, lastUserScore, currentUserEdgeTypesAndDestinations,
+							updatedTweetScores,lastUserTotalEdgeWeight);
+					currentUserEdgeTypesAndDestinations.clear();
+					lastUserTotalEdgeWeight = 0;
+				}
 			}
 
 			tweetId = database.getTweetIdFromCurrentCursorPos();
@@ -695,54 +704,67 @@ public class GraphManager {
 				throw new RuntimeException("Error retrieving tweetId while calculating tweet scores!");
 			}
 
-			currentUserEdgeTypesAndDestinations.add(new Pair<Integer,Long>(
-					new Integer(database.getEdgeTypeFromCurrentCursorPos()),
-					Long.valueOf(tweetId)));
+			EdgeTypes type = idToEdgeType[database.getEdgeTypeFromCurrentCursorPos()];
+			if (type.userToTweetDir) {
+				if (currentUserEdgeTypesAndDestinations.add(new Pair<Integer,Long>(
+						Integer.valueOf(type.id()),
+						Long.valueOf(tweetId)))) {
+					lastUserTotalEdgeWeight += type.probability();
+				}
+			}
 
 			lastUserName = userName;
 			lastUserScore = database.getUserScoreFromCurrentCursorPos();
-			
-			numEdges++;
 		}
 
 		//And update the last tweet
-		updateTweetsFromUser(lastUserName, lastUserScore, currentUserEdgeTypesAndDestinations, updatedTweetScores);
+		if (currentUserEdgeTypesAndDestinations.isEmpty()) {
+			scoreTotalFromVerticesWithNoExit += lastUserScore;
+		}
+		else {
+			updateTweetsFromUser(lastUserName, lastUserScore, currentUserEdgeTypesAndDestinations, updatedTweetScores,
+					lastUserTotalEdgeWeight);
+		}
 
-		return database.updateTweetScores(updatedTweetScores, lambdaTweets);
+		System.out.println("Time before updating tweet scores is " + (new Date()));		
+		database.updateBaseTweetScores(lambdaTweets, scoreTotalFromVerticesWithNoExit);
+		database.updateTweetScores(updatedTweetScores);
 	}
 
-	private int updateUserScores() {
+	private void updateUserScores() {
 		Date d1 = new Date();
 		System.out.println("acquireCursorForUpdating User Scores at " + d1);
 		database.acquireCursorForUpdatingUserScores();
 		Date d2 = new Date();
-		System.out.print("acquired cursor at " + d2 + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds so far");
+		System.out.println("acquired cursor at " + d2 + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + 
+				" seconds so far");
 
 		String userName = null;
 
 		long tweetId = -1;
 		long lastTweetId = -1;
 		double lastTweetScore = -1;
+		double lastUserTotalEdgeWeight = 0;
+
+		double scoreTotalFromVerticesWithNoExit = 0;
 
 		//Holds a record of the scores of all the users that we've updated the score for
 		Map<String,Double> updatedUserScores = new HashMap<String,Double>();
 
-		List<Pair<Integer,String>> currentTweetEdgeTypesAndDestinations = new ArrayList<Pair<Integer,String>>();
-
-		int numEdges = 0;
+		Set<Pair<Integer,String>> currentTweetEdgeTypesAndDestinations = new HashSet<Pair<Integer,String>>();
 		
 		while (-1 != (tweetId = database.getNextTweetIdFromCursor())) {
 
-			
-			if ((numEdges % 500000) == 0) {
-				d2 = new Date();
-				System.out.print("examining an edge from tweet " + tweetId + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds so far");
-				System.out.println(" -- userScoresSize is " + updatedUserScores.size());
-			}
-			
 			if ((lastTweetId != tweetId) && (lastTweetId != -1)) {
-				updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetEdgeTypesAndDestinations, updatedUserScores);
-				currentTweetEdgeTypesAndDestinations.clear();
+				if (currentTweetEdgeTypesAndDestinations.isEmpty()) {
+					scoreTotalFromVerticesWithNoExit += lastTweetScore;
+				}
+				else {
+					updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetEdgeTypesAndDestinations,
+							updatedUserScores, lastUserTotalEdgeWeight);
+					currentTweetEdgeTypesAndDestinations.clear();
+					lastUserTotalEdgeWeight = 0;
+				}
 			}
 
 			userName = database.getNameFromCurrentCursorPos();
@@ -750,18 +772,33 @@ public class GraphManager {
 				throw new RuntimeException("Error retrieving userId while calculating user scores!");
 			}
 
-			currentTweetEdgeTypesAndDestinations.add(new Pair<Integer,String>(
-					new Integer(database.getEdgeTypeFromCurrentCursorPos()),
-					userName));
+			EdgeTypes type = idToEdgeType[database.getEdgeTypeFromCurrentCursorPos()];
+
+			if (type.tweetToUserDir) {
+				if (currentTweetEdgeTypesAndDestinations.add(new Pair<Integer,String>(
+						Integer.valueOf(type.id()),
+						userName))) {
+					lastUserTotalEdgeWeight += type.probability();
+				}
+			}
 
 			lastTweetId = tweetId;
 			lastTweetScore = database.getTweetScoreFromCurrentCursorPos();
 		}
 
 		//And update the last user
-		updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetEdgeTypesAndDestinations, updatedUserScores);
+		if (currentTweetEdgeTypesAndDestinations.isEmpty()) {
+			scoreTotalFromVerticesWithNoExit += lastTweetScore;
+		}
+		else {
+			updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetEdgeTypesAndDestinations,
+					updatedUserScores, lastUserTotalEdgeWeight);
+		}
 
-		return database.updateUserScores(updatedUserScores, lambdaUsers);
+		System.out.println("Time before updating user scores is " + (new Date()));
+
+		database.updateBaseUserScores(lambdaUsers, scoreTotalFromVerticesWithNoExit);
+		database.updateUserScores(updatedUserScores);
 	}
 
 	//TODO: get rid of all of the timing printouts
@@ -774,13 +811,21 @@ public class GraphManager {
 
 		String userName = null;
 
-		//This is a variation on the Adamic/Adair method of similarity as described in Liben-Nowell, 2007
-		//Followees of distinguished_user (gamma(x)) intersection with followers of current_user (gamma(y))
-		//  -- gamma(z) = followers user z
+		/* This is a variation on the Adamic/Adair method of similarity
+		 * as described in Liben-Nowell, 2007. Followees of
+		 * distinguished_user (gamma(x)) intersection with followers of
+		 * current_user (gamma(y))
+		 * 
+		 * gamma(z) = followers user z
+		 */
 
 		int numUsers = 0;
 
 		Date d1 = new Date();
+
+		double maxScore = 0;
+		
+		HashMap<String,Double> scoreBatch = new HashMap<String,Double>(DatabaseInterface.MAX_DATABASE_BATCH_SIZE);
 
 		while (null != (userName = database.getNextNameFromCursor())) {
 			if (userName.equals(distinguishedUser)) {
@@ -790,7 +835,11 @@ public class GraphManager {
 			//Gets the follower counts of the overlap between the distinguished user's followees and this user's followers
 			List<Integer> overlap = database.getFollowerCountsOfOverlappingUserSet(distinguishedUser, userName);
 			if (overlap == null) {
-				database.setOriginalUserScore(userName, 0);
+				scoreBatch.put(userName, Double.valueOf(0));
+				if (scoreBatch.size() > DatabaseInterface.MAX_DATABASE_BATCH_SIZE) {
+					database.setOriginalUserScoreBatch(scoreBatch);
+					scoreBatch.clear();
+				}
 				continue;
 			}
 
@@ -801,17 +850,29 @@ public class GraphManager {
 				score += 1 / Math.log10(i.intValue());
 			}
 
-			if ((++numUsers % 100) == 0) {
+			if ((++numUsers % 1000) == 0) {
 				System.out.print("\tUser: " + numUsers + " (" + userName + "): ");
 				Date d2 = new Date();
 				System.out.print("roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
 						" seconds  so far -- score for this user is ");
 				System.out.println(score);
-			}//*/
+			}
 
+			scoreBatch.put(userName, Double.valueOf(score));
+			if (scoreBatch.size() > DatabaseInterface.MAX_DATABASE_BATCH_SIZE) {
+				database.setOriginalUserScoreBatch(scoreBatch);
+				scoreBatch.clear();
+			}
 
-			database.setOriginalUserScore(userName, score);
+			if (score > maxScore) {
+				maxScore = score;
+			}
 		}
+
+		scoreBatch.put(distinguishedUser, Double.valueOf(maxScore * MAX_USER_SCORE_MULTIPLIER));
+		database.setOriginalUserScoreBatch(scoreBatch);
+
+		//The values will be normalized elsewhere
 
 		Date d2 = new Date();
 		System.out.println("\t\tRoughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
@@ -845,7 +906,8 @@ public class GraphManager {
 			System.out.println("Start acquiring cursor for all follower edge tweets at " + d1);
 			database.acquireCursorForAllFollowerEdgeTweets(distinguishedUser, EdgeTypes.EDGE_TYPE_FOLLOWER.id());
 			Date d2 = new Date();
-			System.out.println("Finish acquiring cursor for all follower edge tweets at " + d2 + " -- Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
+			System.out.println("Finish acquiring cursor for all follower edge tweets at " + d2 + 
+					" -- Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
 		}
 
 		combinedTweet = "";
@@ -854,32 +916,46 @@ public class GraphManager {
 			combinedTweet += " " + tweet;
 		}
 		
+		if (combinedTweet.equals("")) {
+			database.acquireCursorForTweets(distinguishedUser);
+			while (null != (tweet = database.getNextTweetFromCursor())) {
+				combinedTweet += " " + tweet;
+			}
+		}
+
 		//TODO: remove this
 		/*
 		if (combinedTweet.equals("")) {
 			database.setTweetScoresToEven();
 			return;
 		}*/
-
+		
+		combinedTweet = combinedTweet.replaceAll("RT", "");
+		combinedTweet = combinedTweet.replaceAll("rt", "");
+		
+		System.out.println("reference doc is " + combinedTweet);
+		
 		Document referenceDoc = new Document();
 		referenceDoc.add(new Field("tweet", combinedTweet, Field.Store.YES, Field.Index.ANALYZED, TermVector.YES));
 
-		combinedTweet = combinedTweet.replaceAll("RT", "");
-		combinedTweet = combinedTweet.replaceAll("rt", "");
-
+		//This is used only to get the term frequencies of the reference document
 		Directory referenceIndex = new RAMDirectory();
 
-		database.setTweetScoresToZero();
+		HashMap<Long,Double> scoreBatch = new HashMap<Long,Double>(DatabaseInterface.MAX_DATABASE_BATCH_SIZE);
+		
+		database.setTweetScoresAndOriginalScoresToZero();
 
 		try {
 			/* To ensure that stemming and stop words are identical to the main lucene index, we index
 			 * the reference document in the same way, but in RAM and with only one document.
+			 * 
+			 * This is used purely to get the term frequencies using Lucene.
 			 */
 			IndexWriter writer = LuceneIndexManager.getIndexWriter(referenceIndex);
 			writer.addDocument(referenceDoc);
 			writer.close();
 
-			indexMgr.createTermFrequency();
+			indexMgr.createDocumentFrequency();
 
 			String[] terms;
 			int[] termFreqs;
@@ -887,13 +963,16 @@ public class GraphManager {
 			IndexReader referenceIndexReader = IndexReader.open(referenceIndex);
 			TermFreqVector tf = referenceIndexReader.getTermFreqVector(referenceIndexReader.maxDoc() - 1, "tweet");
 
-			System.out.println("Reference doc is " + combinedTweet);
-			
 			terms = tf.getTerms();
 			termFreqs = tf.getTermFrequencies();
 
-			DocVector referenceDocVector = new DocVector(terms,termFreqs,indexMgr.getTermFrequency());
-			
+			/* Note that we use the main index's document frequencies, which are
+			 * valid for all terms of the reference document since the tweets
+			 * which make up the reference document are contained within the
+			 * main index. 
+			 */
+			DocVector referenceDocVector = new DocVector(terms,termFreqs,indexMgr.getDocumentFrequency(), database.getNumTweetVertices());
+
 			for (int ii = 0 ; ii < indexMgr.reader.maxDoc(); ii++) {
 				if (indexMgr.reader.isDeleted(ii)) {
 					continue;
@@ -906,18 +985,27 @@ public class GraphManager {
 				terms = tf.getTerms();
 				termFreqs = tf.getTermFrequencies();
 
-				DocVector docVector = new DocVector(terms, termFreqs, indexMgr.getTermFrequency());
+				DocVector docVector = new DocVector(terms, termFreqs, indexMgr.getDocumentFrequency(), database.getNumTweetVertices());
 
 				double similarity = docVector.cosineSimilarity(referenceDocVector);
 
 				Document doc = indexMgr.reader.document(ii);
 				Long tweetId = Long.valueOf(doc.get("tweetid"));
 
-				database.setOriginalTweetScore(tweetId.longValue(), similarity);
-				
+				scoreBatch.put(tweetId, Double.valueOf(similarity));
+				if (scoreBatch.size() > DatabaseInterface.MAX_DATABASE_BATCH_SIZE) {
+					database.setOriginalTweetScoreBatch(scoreBatch);
+					scoreBatch.clear();
+				}
+
 				if ((ii % 1000) == 0) {
 					System.out.println("Initializing Tweet " + ii);
 				}
+			}
+			
+			if (!scoreBatch.isEmpty()) {
+				database.setOriginalTweetScoreBatch(scoreBatch);
+				scoreBatch.clear();
 			}
 
 			referenceIndexReader.close();
@@ -944,25 +1032,33 @@ public class GraphManager {
 		//Sets score to original_score for doing multiple runs in a row
 		database.resetScores();
 
-		int tweetUpdates = -1;
-		int userUpdates = -1;
-
 		int iterations = 0;
 
 		Date d1 = new Date();
+		Date d2 = new Date();
 
 		do {
 			System.out.println("Iteration #" + (iterations + 1));
+			d2 = new Date();
+			System.out.println("\tAt the start of this iteration, roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
+					" seconds");
 
-			tweetUpdates = updateTweetScores();
-			userUpdates = updateUserScores();
-		} while (((tweetUpdates != 0) || (userUpdates != 0)) && (++iterations < MAX_ITERATIONS));//*/
+			updateTweetScores();
+			d2 = new Date();
+			System.out.println("time after tweetUpdates is " + d2 + " -- roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
+					" seconds");
+			updateUserScores();
+			d2 = new Date();
+			System.out.println("time after tweetUpdates is " + d2 + " -- roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
+					" seconds");
+		} while (++iterations < MAX_ITERATIONS);//*/
 
-		Date d2 = new Date();
+		d2 = new Date();
 
 		System.out.println("Finished running Co-HITS after " + (iterations + 1) + " iterations");
 		System.out.println("Started at " + d1 + " and finished at " + d2);
 		System.out.println("Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
+		System.out.println("LambdaTweets was " + lambdaTweets + " and lambdaUsers was " + lambdaUsers);
 	}
 
 	private void addEdge(String userName, long tweetId, EdgeTypes type, boolean createUserIfNeeded) {
@@ -991,7 +1087,11 @@ public class GraphManager {
 
 		@Override
 		boolean tweetHandler(Tweet tweet) {
-
+			
+			if ((tweet.user.length() >= 32) || (tweet.tweet.length() >= 255)) {
+				return false;
+			}
+			
 			//addEdge creates the user if needed
 			addEdge(tweet.getUser(),tweet.id, EdgeTypes.EDGE_TYPE_AUTHORSHIP, true);
 

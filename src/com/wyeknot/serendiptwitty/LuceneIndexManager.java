@@ -45,7 +45,7 @@ public class LuceneIndexManager {
 
 	private Map<String,Integer> terms;
 
-	LuceneIndexManager(String path) throws IOException { 
+	public LuceneIndexManager(String path) throws IOException { 
 		index = FSDirectory.open(new File(path));
 	}
 
@@ -60,6 +60,10 @@ public class LuceneIndexManager {
 
 	public Directory getIndex() {
 		return index;
+	}
+	
+	public IndexReader getReader() {
+		return reader;
 	}
 
 	public static IndexWriter getIndexWriter(Directory index, Analyzer analyzer) throws CorruptIndexException, LockObtainFailedException, IOException {
@@ -116,7 +120,7 @@ public class LuceneIndexManager {
 		}
 	}
 
-	public void createTermFrequency() throws CorruptIndexException, IOException {
+	public void createDocumentFrequency() throws CorruptIndexException, IOException {
 
 		initializeForReading();
 
@@ -135,7 +139,7 @@ public class LuceneIndexManager {
 		}
 	}
 
-	public Map<String,Integer> getTermFrequency() {
+	public Map<String,Integer> getDocumentFrequency() {
 		return terms;
 	}
 
@@ -219,7 +223,7 @@ public class LuceneIndexManager {
 		/* At creation, the map takes a term to the term frequency
 		 * in the vector. It will later be modified to be tf*idf
 		 */
-		public DocVector(String[] termList, int[] frequenciesList, Map<String,Integer> dfValues) {
+		public DocVector(String[] termList, int[] frequenciesList, Map<String,Integer> dfValues, int totalDocs) {
 			if (termList.length != frequenciesList.length) {
 				throw new RuntimeException("Term list and Frequency list had different lengths!");
 			}
@@ -233,7 +237,7 @@ public class LuceneIndexManager {
 				}
 
 				int df = dfValues.get(termList[ii]).intValue();
-				double idf = Math.log10((double)Recommender.NUM_TWEETS_TO_INDEX / (double)(df + 1)) + 1;
+				double idf = Math.log10((double)totalDocs / (double)(df + 1)) * (1.0 / (Math.log10((double)(df + 1))));
 
 				terms.put(termList[ii], Double.valueOf((double)frequenciesList[ii] * idf));
 			}

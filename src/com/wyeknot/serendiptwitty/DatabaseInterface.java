@@ -24,12 +24,14 @@ public class DatabaseInterface {
 	private ResultSet curInternalResults = null;
 	private PreparedStatement curInternalStatement = null;
 
-	public static final int MAX_DATABASE_BATCH_SIZE = 5000;
+	public static final int MAX_DATABASE_BATCH_SIZE = 50000;
 
-	DatabaseInterface() throws SQLException {
+	private int numTweetVertices = 0;
+	private int numUserVertices = 0;
+
+	public DatabaseInterface() throws SQLException {
 		String connectionURL = "jdbc:postgresql://localhost:5432/tweet";
 		dbConnection = DriverManager.getConnection(connectionURL,"twitter","tweets357");
-		//dbConnection.setAutoCommit(false);
 	}
 
 	public void clusterEdges() {
@@ -64,7 +66,7 @@ public class DatabaseInterface {
 			e.printStackTrace();
 		}
 	}
-	
+
 	public void clusterTweetsById() {
 		try {
 			PreparedStatement st = dbConnection.prepareStatement("CLUSTER tweet_vertices_pkey ON tweet_vertices;");
@@ -74,6 +76,111 @@ public class DatabaseInterface {
 		catch (Exception e) {
 			e.printStackTrace();
 		}
+	}
+
+	public void createAndClusterEdgesTweetIds() {
+		try {
+			dbConnection.setAutoCommit(false);
+
+			PreparedStatement st = dbConnection.prepareStatement("CREATE TABLE edges_tweetids AS (SELECT * FROM EDGES);");
+			st.execute();
+			st.close();
+
+			dbConnection.commit();
+			dbConnection.setAutoCommit(true);
+
+			st = dbConnection.prepareStatement("CREATE INDEX idx_edges_tweetids_tweetids ON edges_tweetids USING btree (tweetid);");
+			st.execute();
+			st.close();
+
+			st = dbConnection.prepareStatement("CREATE INDEX idx_edges_tweetids_names ON edges_tweetids USING btree (name);");
+			st.execute();
+			st.close();
+
+			st = dbConnection.prepareStatement("CREATE INDEX idx_edges_tweetids_types ON edges_tweetids USING btree (type);");
+			st.execute();
+			st.close();
+
+			st = dbConnection.prepareStatement("CLUSTER idx_edges_tweetids_tweetids ON edges_tweetids;");
+			st.execute();
+			st.close();
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	
+	
+	public void analyzeTables() {
+		try {
+			PreparedStatement st = dbConnection.prepareStatement("ANALYZE user_vertices;");
+			st.execute();
+			st.close();
+			st = dbConnection.prepareStatement("ANALYZE tweet_vertices;");
+			st.execute();
+			st.close();
+			st = dbConnection.prepareStatement("ANALYZE edges;");
+			st.execute();
+			st.close();
+			st = dbConnection.prepareStatement("ANALYZE edges_tweetids;");
+			st.execute();
+			st.close();
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	private int countTweetVertices() {
+		try {
+			PreparedStatement st = dbConnection.prepareStatement("SELECT COUNT(*) FROM tweet_vertices;");
+
+			ResultSet result = st.executeQuery();
+			result.next();
+			int numRows = result.getInt(1);
+			
+			st.close();
+
+			return numRows;
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+		return 0;
+	}
+
+	private int countUserVertices() {
+		try {
+			PreparedStatement st = dbConnection.prepareStatement("SELECT COUNT(*) FROM user_vertices;");
+
+			ResultSet result = st.executeQuery();
+			result.next();
+			int numRows = result.getInt(1);
+
+			st.close();
+
+			return numRows;
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+		return 0;
+	}
+	
+	public int getNumTweetVertices() {
+		if (numTweetVertices == 0) {
+			numTweetVertices = countTweetVertices();
+		}
+
+		return numTweetVertices;
+	}
+	
+	public int getNumUserVertices() {
+		if (numUserVertices == 0) {
+			numUserVertices = countUserVertices();
+		}
+
+		return numUserVertices;
 	}
 
 	public void acquireCursorForTweetsOfUsers(Set<String> users) {
@@ -275,35 +382,35 @@ public class DatabaseInterface {
 		}
 	}
 
-	//The GROUP BY statement here is essential because of the way the algorithm is set up.
+	//The ORDER BY statement here is essential because of the way the algorithm is set up.
 	public void acquireCursorForUpdatingTweetScores() {
 		try {
 			closeCursor();
-			
+
 			dbConnection.setAutoCommit(false);
-			
-			curStatement = dbConnection.prepareStatement("SELECT U.score as user_score, E.* FROM user_vertices U, edges E WHERE E.name=U.name ORDER BY E.name;",
+			curStatement = dbConnection.prepareStatement("SELECT E.*, U.score as user_score FROM edges E, user_vertices U WHERE E.name=U.name ORDER BY E.name;",
 					ResultSet.TYPE_FORWARD_ONLY,
 					ResultSet.CONCUR_READ_ONLY);
-			curStatement.setFetchSize(10000);
+			curStatement.setFetchSize(100000);
 			curResults = curStatement.executeQuery();
-			
+
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 
-	//The GROUP BY statement here is essential because of the way the algorithm works.
+	//The ORDER BY statement here is essential because of the way the algorithm works.
 	public void acquireCursorForUpdatingUserScores() {
 		try {
 			closeCursor();
-			
+
 			dbConnection.setAutoCommit(false);
+
 			curStatement = dbConnection.prepareStatement("SELECT E.*, T.score as tweet_score FROM edges_tweetids E, tweet_vertices T WHERE E.tweetid=T.tweetid ORDER BY E.tweetid;",
 					ResultSet.TYPE_FORWARD_ONLY,
 					ResultSet.CONCUR_READ_ONLY);
-			curStatement.setFetchSize(10000);
-			
+			curStatement.setFetchSize(100000);
+
 			curResults = curStatement.executeQuery();
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -368,34 +475,14 @@ public class DatabaseInterface {
 		}
 	}
 
-	private int getCountOfUserVertices() {
-		try {
-			PreparedStatement st = dbConnection.prepareStatement("SELECT COUNT(*) FROM user_vertices;");
-
-			ResultSet result = st.executeQuery();
-			result.next();
-			int count = result.getInt(1);
-
-			st.close();
-
-			return count;
-		} catch (Exception e) {
-			e.printStackTrace();
-			return -1;
-		}
-	}
-
 	//Should only be done once, after the initial user scoring method is undertaken
 	public void normalizeUserScores() {
 
 		try {
-			int countOfUserVertices = getCountOfUserVertices();
-			if (-1 == countOfUserVertices) {
-				throw new RuntimeException("Couldn't normalize user scores! Couldn't get count of userVertices!");
-			}
-
 			PreparedStatement st = dbConnection.prepareStatement("UPDATE user_vertices SET original_score=(original_score / S.sum) FROM (SELECT SUM(original_score) FROM user_vertices) S;");
 			st.executeUpdate();
+
+			st.close();
 		} catch (Exception e) {
 			e.printStackTrace();
 			throw new RuntimeException("Couldn't normalize user scores!");
@@ -451,25 +538,6 @@ public class DatabaseInterface {
 		}
 	}
 
-
-	public int getCountOfFollowersForUser(String user) {
-		try {
-			PreparedStatement st = dbConnection.prepareStatement("SELECT count FROM followercount WHERE username=?;");
-			st.setString(1,user);
-
-			ResultSet result = st.executeQuery();
-			result.next();
-			int count = result.getInt(1);
-
-			st.close();
-
-			return count;
-		} catch (Exception e) {
-			e.printStackTrace();
-			return 0;
-		}
-	}
-
 	private int executeUpdateScoresBatch(PreparedStatement st) {
 		int updates = 0;
 
@@ -488,8 +556,8 @@ public class DatabaseInterface {
 		}
 	}
 
-	public int updateTweetScores(Map<Long,Double> scores, double lambdaTweet) {
-		double originalScoreFactor = 1 - lambdaTweet;
+	//The scores passed in already have the lambdaTweet factor included in them
+	public int updateTweetScores(Map<Long,Double> scores) {
 		PreparedStatement st = null;
 
 		int updates = 0;
@@ -497,25 +565,23 @@ public class DatabaseInterface {
 
 		try {
 			dbConnection.setAutoCommit(true);
-			
+
 			for (Long tweetId : scores.keySet()) {
 				if (null == st) {
-					st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(? + (original_score * ?)) WHERE tweetid=? AND ABS(score - (? + (original_score * ?))) > 0;");
+					//st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(? + (original_score * ?)) WHERE tweetid=? AND ABS(score - (? + (original_score * ?))) > 0;");
+					st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(score + ?) WHERE tweetid=?;");
 					curBatchCount = 0;
 				}
 
 				double score = scores.get(tweetId);
-				
+
 				if (tweetId.longValue() == 4321) {
 					System.out.println("4321 being updated to a score of " + score);
 				}
-				
+
 				st.setDouble(1, score);
-				st.setDouble(2, originalScoreFactor);
-				st.setLong(3, tweetId);
-				st.setDouble(4, score);
-				st.setDouble(5, originalScoreFactor);
-				
+				st.setLong(2, tweetId);
+
 				st.addBatch();
 				curBatchCount++;
 
@@ -528,7 +594,7 @@ public class DatabaseInterface {
 			if (null != st) {
 				updates += executeUpdateScoresBatch(st);
 			}
-			
+
 			System.out.println("there were " + updates + " tweet updates out of " +
 					scores.keySet().size() + " tweets this iteration");
 
@@ -539,8 +605,8 @@ public class DatabaseInterface {
 		}
 	}
 
-	public int updateUserScores(Map<String,Double> scores, double lambdaUser) {
-		double originalScoreFactor = 1 - lambdaUser;
+	//The scores passed in already have the lambdaUser factor included in them
+	public int updateUserScores(Map<String,Double> scores) {
 		PreparedStatement st = null;
 
 		int updates = 0;
@@ -548,26 +614,24 @@ public class DatabaseInterface {
 
 		try {
 			dbConnection.setAutoCommit(true);
-			
+
 			for (String userName : scores.keySet()) {
 				if (null == st) {
-					st = dbConnection.prepareStatement("UPDATE user_vertices SET score=(? + (original_score * ?)) WHERE name=? AND ABS(score - (? + (original_score * ?))) > 0;");
+					//st = dbConnection.prepareStatement("UPDATE user_vertices SET score=(? + (original_score * ?)) WHERE name=? AND ABS(score - (? + (original_score * ?))) > 0;");
+					st = dbConnection.prepareStatement("UPDATE user_vertices SET score=(score + ?) WHERE name=?;");
 					curBatchCount = 0;
 				}
 
 				double score = scores.get(userName);
-				
+
 				//TODO: don't forget to remove this debug printout
 				if (userName.equals("chrissaad")) {
 					System.out.println("chrissaad being updated to a score of " + score);
 				}
-				
+
 				st.setDouble(1, score);
-				st.setDouble(2, originalScoreFactor);
-				st.setString(3, userName);
-				st.setDouble(4, score);
-				st.setDouble(5, originalScoreFactor);
-				
+				st.setString(2, userName);
+
 				st.addBatch();
 				curBatchCount++;
 
@@ -580,7 +644,7 @@ public class DatabaseInterface {
 			if (null != st) {
 				updates += executeUpdateScoresBatch(st);
 			}
-			
+
 			System.out.println("there were " + updates + " user updates out of " +
 					scores.keySet().size() + " users this iteration");
 
@@ -588,6 +652,38 @@ public class DatabaseInterface {
 		} catch (Exception e) {
 			e.printStackTrace();
 			return 0;
+		}
+	}
+
+	public void updateBaseTweetScores(double lambdaTweets, double totalAmount) {
+
+		double originalScoreFactor = 1 - lambdaTweets;
+
+		try {
+			PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(? + (original_score * ?));");
+			st.setDouble(1, (lambdaTweets * (totalAmount / (double)getNumTweetVertices())));
+			st.setDouble(2, originalScoreFactor);
+			st.executeUpdate();
+			st.close();
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void updateBaseUserScores(double lambdaUsers, double totalAmount) {
+
+		double originalScoreFactor = 1 - lambdaUsers;
+
+		try {
+			PreparedStatement st = dbConnection.prepareStatement("UPDATE user_vertices SET score=(? + (original_score * ?));");
+			st.setDouble(1, (lambdaUsers * (totalAmount / (double)getNumUserVertices())));
+			st.setDouble(2, originalScoreFactor);
+			st.executeUpdate();
+			st.close();
+		}
+		catch (Exception e) {
+			e.printStackTrace();
 		}
 	}
 
@@ -730,17 +826,23 @@ public class DatabaseInterface {
 		}
 	}
 
-	boolean setOriginalUserScore(String userName, double score) {
+	boolean setOriginalUserScoreBatch(Map<String,Double> scores) {
 		try {
 			PreparedStatement st = dbConnection.prepareStatement("UPDATE user_vertices set original_score=?, score=? where name=?;");
-			st.setDouble(1, score);
-			st.setDouble(2, score);
-			st.setString(3, userName);
 
-			int rowsUpdated = st.executeUpdate();
-			if (1 != rowsUpdated) {
-				System.err.println("couldn't set original score for user " + userName);
-				return false;
+			for (String userName : scores.keySet()) {
+				st.setDouble(1, scores.get(userName));
+				st.setDouble(2, scores.get(userName));
+				st.setString(3, userName);
+				st.addBatch();
+			}
+
+			int[] results = st.executeBatch();
+			for (int ii = 0 ; ii < results.length ; ii++) {
+				if (results[ii] != 1) {
+					System.out.println("Couldn't add user " + (ii + 1) + " of " + results.length);
+					return false;
+				}
 			}
 
 			st.close();
@@ -752,7 +854,8 @@ public class DatabaseInterface {
 		}
 	}
 
-	void setTweetScoresToZero() {
+
+	void setTweetScoresAndOriginalScoresToZero() {
 		try {
 			PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=0, original_score=0;");
 			st.executeUpdate();
@@ -761,7 +864,7 @@ public class DatabaseInterface {
 			e.printStackTrace();
 		}
 	}
-	
+
 	//TODO: remove this
 	void setTweetScoresToEven() {
 		try {
@@ -775,17 +878,24 @@ public class DatabaseInterface {
 		}
 	}
 
-	boolean setOriginalTweetScore(long tweetId, double score) {
+	boolean setOriginalTweetScoreBatch(Map<Long,Double> scores) {
 		try {
 			PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices set original_score=?, score=? where tweetid=?;");
-			st.setDouble(1, score);
-			st.setDouble(2, score);
-			st.setLong(3, tweetId);
 
-			int rowsUpdated = st.executeUpdate();
-			if (1 != rowsUpdated) {
-				System.err.println("couldn't set original score for tweet " + tweetId);
-				return false;
+			for (Long tweet : scores.keySet()) {
+				st.setDouble(1, scores.get(tweet));
+				st.setDouble(2, scores.get(tweet));
+				st.setLong(3, tweet);
+
+				st.addBatch();
+			}
+
+			int[] results = st.executeBatch();
+			for (int ii = 0 ; ii < results.length ; ii++) {
+				if (results[ii] != 1) {
+					System.out.println("Couldn't add tweet " + (ii + 1) + " of " + results.length);
+					return false;
+				}
 			}
 
 			st.close();
@@ -820,6 +930,8 @@ public class DatabaseInterface {
 				}
 			}
 
+			st.close();
+
 			return true;
 		}
 		catch (SQLException e) {
@@ -846,6 +958,7 @@ public class DatabaseInterface {
 				st.addBatch();
 			}
 
+
 			int[] results = st.executeBatch();
 			for (int ii = 0 ; ii < results.length ; ii++) {
 				if (results[ii] != 1) {
@@ -853,6 +966,8 @@ public class DatabaseInterface {
 					return false;
 				}
 			}
+
+			st.close();
 
 			return true;
 		}
