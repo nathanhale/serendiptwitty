@@ -1,3 +1,22 @@
-Initial version.
 
-This code requires JGraphX and Lucene in order to run.
+This code requires a number of libraries to run:
+
+Lucene (http://lucene.apache.org/core/)
+JDBC for PostgreSQL
+Stanford NER Library (http://nlp.stanford.edu/software/CRF-NER.shtml)
+
+The following SQL commands should be run before this code is run for the first time:
+
+drop table user_vertices;
+drop table tweet_vertices;
+drop table edges;
+drop table edges_tweetids;
+
+create table user_vertices (name varchar(32) primary key, score float, original_score float);
+create table tweet_vertices (tweetid int primary key, name varchar(32), date timestamp, tweet varchar(255), score float, original_score float);
+create table edges (name varchar(32), tweetid int, type int);
+
+create index idx_edge_name on edges using btree(name);
+create index idx_edge_tweet on edges using btree(tweetid);
+create index idx_edge_type on edges using btree(type);
+create index idx_tweet_author on tweet_vertices using btree(name);

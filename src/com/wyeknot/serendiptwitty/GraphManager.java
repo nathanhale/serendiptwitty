@@ -8,8 +8,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -30,122 +28,6 @@ import edu.stanford.nlp.ling.CoreLabel;
 
 public class GraphManager {
 
-	public enum EdgeTypes {
-		//Connects a tweet to the user who created it
-		
-		EDGE_TYPE_AUTHORSHIP (1, 1, false, true),
-		//Connects a tweet to all of the followers of the tweeter
-		EDGE_TYPE_FOLLOWER   (2, 1, true, false),
-		//Connects the retweet to the original tweeter
-		EDGE_TYPE_RETWEET    (3, 1, false, true),
-		//Connects the tweets of the followees of the person being retweeted to the retweeter
-		EDGE_TYPE_RETWEET_FOLLOWEES (4, 1, true, false),
-		//Connects the tweets of the person being retweeted to the followers of the retweeter
-		EDGE_TYPE_RETWEET_FOLLOWERS (5, 1, true, false),
-		//Connects the tweet to the person being mentioned
-		EDGE_TYPE_MENTION (6, 1, false, true),
-		//Connects the tweets of the followees of the person being mentioned to the mentioner
-		EDGE_TYPE_MENTION_FOLLOWEES (7, 1, true, false),
-		//Connects the tweets of the person being mentioned to the followers of the mentioner
-		EDGE_TYPE_MENTION_FOLLOWERS (8, 1, true, false),
-		//Connects the tweet to the person being @replied to
-		EDGE_TYPE_AT_REPLY (9, 1, false, true),
-		//Connects the tweets of the person being @replied to to the tweeter
-		EDGE_TYPE_AT_REPLY_CONTENT (10, 1, true, false),
-		EDGE_TYPE_HASHTAG (11, 1, true, true),
-		EDGE_TYPE_CONTENT (12, 1, true, true);
-		
-		//TODO: definitely would like to try out the content edges as directed from users to tweets or vice versa. Though perhaps it makes the most sense bidirectional
-
-		private final int id;
-		private final double probability;
-		private final boolean tweetToUserDir;
-		private final boolean userToTweetDir;
-
-		private EdgeTypes(int id, double probability, boolean tweetToUser, boolean userToTweet) {
-			this.id = id;
-			this.probability = probability;
-			this.tweetToUserDir = tweetToUser;
-			this.userToTweetDir = userToTweet;
-		}
-
-		public int id() { return id; }
-		public double probability() { return probability; }
-	}
-
-	private static final EdgeTypes[] idToEdgeType = {
-		null,
-		EdgeTypes.EDGE_TYPE_AUTHORSHIP,
-		EdgeTypes.EDGE_TYPE_FOLLOWER,
-		EdgeTypes.EDGE_TYPE_RETWEET,
-		EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWEES,
-		EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWERS,
-		EdgeTypes.EDGE_TYPE_MENTION,
-		EdgeTypes.EDGE_TYPE_MENTION_FOLLOWEES,
-		EdgeTypes.EDGE_TYPE_MENTION_FOLLOWERS,
-		EdgeTypes.EDGE_TYPE_AT_REPLY,
-		EdgeTypes.EDGE_TYPE_AT_REPLY_CONTENT,
-		EdgeTypes.EDGE_TYPE_HASHTAG,
-		EdgeTypes.EDGE_TYPE_CONTENT
-	};
-
-	private static class Pair<F, S> {
-		private F first;
-		private S second;
-
-		public Pair(F f, S s){
-			this.first = f;
-			this.second = s;
-		}
-
-		public F getFirst() { return first; }
-		public S getSecond() { return second; }
-
-		public int hashCode() {
-			return first.hashCode() + second.hashCode();
-		}
-
-		public boolean equals(Object o) {
-			if (!(o instanceof GraphManager.Pair<?,?>)) {
-				return false;
-			}
-
-			@SuppressWarnings("unchecked")
-			Pair<F,S> obj = (Pair<F,S>)o;
-			if (first.equals(obj.first) && second.equals(obj.second)) {
-				return true;
-			}
-
-			return false;
-		}
-	}
-
-	public static class Edge {
-		public String name;
-		public long tweet;
-		public int type;
-
-		Edge(String name, long tweet, int type) {
-			this.name = name;
-			this.tweet = tweet;
-			this.type = type;
-		}
-	}
-
-	private final Pattern hashTagRegExPattern = Pattern.compile(" #[a-zA-Z0-9]*[a-zA-Z]");
-
-	private final Pattern atReplyRegExPattern = Pattern.compile("^@[a-zA-Z][a-zA-Z0-9_]*");
-	private final Pattern mentionRegExPattern = Pattern.compile("@[a-zA-Z][a-zA-Z0-9_]*");
-	private final Pattern rtRegExPattern = Pattern.compile("RT @[a-zA-Z][a-zA-Z0-9_]*");
-	private final Pattern rtRegExPattern2  = Pattern.compile("RT@[a-zA-Z][a-zA-Z0-9_]*");
-	private final Pattern rtRegExPattern3  = Pattern.compile("RT: @[a-zA-Z][a-zA-Z0-9_]*");
-	private final Pattern rtRegExPattern4  = Pattern.compile("via @[a-zA-Z][a-zA-Z0-9_]*");
-	//This is the starting point of the actual name in each of the RT regex patterns
-	private final int rtPatternNameStart = 4;
-	private final int rtPattern2NameStart = 3;
-	private final int rtPattern3NameStart = 5;
-	private final int rtPattern4NameStart = 5;
-
 	public static final double DEFAULT_ORIGINAL_SCORE = 0;
 
 	private LuceneIndexManager indexMgr;
@@ -164,10 +46,11 @@ public class GraphManager {
 	private static final int MAX_ITERATIONS = 10;
 
 	//Values closer to 0 put more weight on the original score
-	private static final double lambdaUsers = 0.65;
-	private static final double lambdaTweets = 0.85;
+	private static final double lambdaUsers = 0.8;
+	private static final double lambdaTweets = 0.9;
 
 	private static final double MAX_USER_SCORE_MULTIPLIER = 1.5;
+
 
 	GraphManager(DatabaseInterface database, LuceneIndexManager index, String distinguishedUser, Set<String> otherDistinguishedUsers) {
 		this.database = database;
@@ -281,9 +164,9 @@ public class GraphManager {
 			lastUser = tweeter;
 			curUserTweetIds.add(Long.valueOf(tweetId));
 
-			Set<String> retweets = findRetweetedUsers(tweet);
-			String atReply = findAtReply(tweet);
-			Set<String> mentions = findMentionedUsers(tweet, retweets);
+			Set<String> retweets = Tweet.findRetweetedUsers(tweet);
+			String atReply = Tweet.findAtReply(tweet);
+			Set<String> mentions = Tweet.findMentionedUsers(tweet, retweets);
 
 			createRetweetEdgesForTweet(tweeter, tweetId, retweets);
 
@@ -293,7 +176,7 @@ public class GraphManager {
 				database.acquireInternalCursorForTweets(atReply);
 				long internalTweetId = -1;
 				while (-1 != (internalTweetId = database.getNextTweetIdFromInternalCursor())) {
-					addEdge(tweeter, internalTweetId, EdgeTypes.EDGE_TYPE_AT_REPLY_CONTENT, false);
+					addEdge(tweeter, internalTweetId, Edge.Types.EDGE_TYPE_AT_REPLY_CONTENT, false);
 				}
 			}
 		}
@@ -310,7 +193,7 @@ public class GraphManager {
 		String internalUser = null;
 		while (null != (internalUser = database.getNextNameFromInternalCursor())) {
 			for (Long id : curUserTweetIds) {
-				addEdge(internalUser, id.longValue(), EdgeTypes.EDGE_TYPE_FOLLOWER, false);
+				addEdge(internalUser, id.longValue(), Edge.Types.EDGE_TYPE_FOLLOWER, false);
 			}
 		}
 	}
@@ -319,21 +202,21 @@ public class GraphManager {
 		for (String retweetee : retweets) {
 			//Connects the tweets of the followees of the person being retweeted to the retweeter
 			database.acquireInternalCursorForFolloweesEdges(retweetee, tweeter,
-					EdgeTypes.EDGE_TYPE_AUTHORSHIP.id(), EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWEES.id());
+					Edge.Types.EDGE_TYPE_AUTHORSHIP.id(), Edge.Types.EDGE_TYPE_RETWEET_FOLLOWEES.id());
 
 			long internalTweetId = -1;
 			while (-1 != (internalTweetId = database.getNextTweetIdFromInternalCursor())) {
-				addEdge(tweeter, internalTweetId, EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWEES, false);
+				addEdge(tweeter, internalTweetId, Edge.Types.EDGE_TYPE_RETWEET_FOLLOWEES, false);
 			}
 
 			//Connects the tweets of the person being retweeted to the followers of the retweeter				
 			database.acquireInternalCursorForFollowersEdges(retweetee, tweeter,
-					EdgeTypes.EDGE_TYPE_AUTHORSHIP.id(), EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWERS.id());
+					Edge.Types.EDGE_TYPE_AUTHORSHIP.id(), Edge.Types.EDGE_TYPE_RETWEET_FOLLOWERS.id());
 			internalTweetId = -1;
 
 			while (-1 != (internalTweetId = database.getNextTweetIdFromInternalCursor())) {
 				String internalUserName = database.getNameFromCurrentInternalCursorPos();
-				addEdge(internalUserName, internalTweetId, EdgeTypes.EDGE_TYPE_RETWEET_FOLLOWERS, false);	
+				addEdge(internalUserName, internalTweetId, Edge.Types.EDGE_TYPE_RETWEET_FOLLOWERS, false);	
 			}
 		}
 	}
@@ -342,109 +225,26 @@ public class GraphManager {
 		for (String mentionee : mentions) {
 			//Connects the tweets of the followees of the person being mentioned to the mentioner
 			database.acquireInternalCursorForFolloweesEdges(mentionee, tweeter,
-					EdgeTypes.EDGE_TYPE_AUTHORSHIP.id(), EdgeTypes.EDGE_TYPE_MENTION_FOLLOWEES.id());
+					Edge.Types.EDGE_TYPE_AUTHORSHIP.id(), Edge.Types.EDGE_TYPE_MENTION_FOLLOWEES.id());
 
 
 			long internalTweetId = -1;
 			while (-1 != (internalTweetId = database.getNextTweetIdFromInternalCursor())) {
-				addEdge(tweeter, internalTweetId, EdgeTypes.EDGE_TYPE_MENTION_FOLLOWEES, false);
+				addEdge(tweeter, internalTweetId, Edge.Types.EDGE_TYPE_MENTION_FOLLOWEES, false);
 			}
 
 			//Connects the tweets of the person being mentioned to the followers of the mentioner				
 			database.acquireInternalCursorForFollowersEdges(mentionee, tweeter,
-					EdgeTypes.EDGE_TYPE_AUTHORSHIP.id(), EdgeTypes.EDGE_TYPE_MENTION_FOLLOWERS.id());
+					Edge.Types.EDGE_TYPE_AUTHORSHIP.id(), Edge.Types.EDGE_TYPE_MENTION_FOLLOWERS.id());
 			internalTweetId = -1;
 
 			while (-1 != (internalTweetId = database.getNextTweetIdFromInternalCursor())) {
 				String internalUserName = database.getNameFromCurrentInternalCursorPos();
-				addEdge(internalUserName, internalTweetId, EdgeTypes.EDGE_TYPE_MENTION_FOLLOWERS, false);	
+				addEdge(internalUserName, internalTweetId, Edge.Types.EDGE_TYPE_MENTION_FOLLOWERS, false);	
 			}
 		}
 	}
 
-	private Set<String> findRetweetedUsers(String tweet) {
-		Set<String> users = new HashSet<String>();
-
-		Matcher m = rtRegExPattern.matcher(tweet);
-		while (m.find()) {
-			String match = m.group();
-			String user = match.substring(rtPatternNameStart).toLowerCase();
-			if (user.length() >= 32) {
-				continue;
-			}
-			users.add(user);
-		}
-
-		m = rtRegExPattern2.matcher(tweet);
-		while (m.find()) {
-			String match = m.group();
-			String user = match.substring(rtPattern2NameStart).toLowerCase();
-			if (user.length() >= 32) {
-				continue;
-			}
-			users.add(user);
-		}
-
-		m = rtRegExPattern3.matcher(tweet);
-		while (m.find()) {
-			String match = m.group();
-			String user = match.substring(rtPattern3NameStart).toLowerCase();
-			if (user.length() >= 32) {
-				continue;
-			}
-			users.add(user);
-		}
-
-		m = rtRegExPattern4.matcher(tweet);
-		while (m.find()) {
-			String match = m.group();
-			String user = match.substring(rtPattern4NameStart).toLowerCase();
-			if (user.length() >= 32) {
-				continue;
-			}
-			users.add(user);
-		}
-
-		return users;
-	}
-
-	private String findAtReply(String tweet) {
-		Matcher m = atReplyRegExPattern.matcher(tweet);
-
-		String user = null;
-		
-		while (m.find()) {
-			user = m.group().substring(1).toLowerCase();
-			if (user.length() > 32) {
-				user = null;
-			}
-		}
-
-		return user;
-	}
-
-	private Set<String> findMentionedUsers(String tweet, Set<String> retweetedUsers) {
-		Set<String> users = new HashSet<String>();
-
-		Matcher m = mentionRegExPattern.matcher(tweet);
-
-		while (m.find()) {
-			String match = m.group();
-			String user = match.substring(1).toLowerCase();
-
-			//this is the old trick to not match an RT -- search for RTs first and remove them
-			//tweet = tweet.replace(match, " ");
-
-			if (m.start() == 0) {
-				//This is an @reply -- ignore it here
-			}
-			else if (!retweetedUsers.contains(user) && (user.length() < 32)) {
-				users.add(user);
-			}
-		}
-
-		return users;
-	}
 
 	private void createContentEdges() {
 		String serializedClassifier = Recommender.nerClassifiersPath + "english.all.3class.distsim.crf.ser.gz";
@@ -528,7 +328,7 @@ public class GraphManager {
 				}
 			}
 
-			Set<String> hashtagsInTweet = findHashTags(tweet);
+			Set<String> hashtagsInTweet = Tweet.findHashTags(tweet);
 			for (String tag : hashtagsInTweet) {
 				String key = tag.toLowerCase();
 
@@ -561,7 +361,7 @@ public class GraphManager {
 			for (Pair<Long,String> tweetIdAndAuthor : tweetIds) {
 				for (String author : authors) {
 					if (!author.equals(tweetIdAndAuthor.getSecond())) {
-						addEdge(author, tweetIdAndAuthor.getFirst(), EdgeTypes.EDGE_TYPE_CONTENT, false);
+						addEdge(author, tweetIdAndAuthor.getFirst(), Edge.Types.EDGE_TYPE_CONTENT, false);
 					}
 				}
 			}
@@ -576,7 +376,7 @@ public class GraphManager {
 			for (Pair<Long,String> tweetIdAndAuthor : tweetIds) {
 				for (String author : authors) {
 					if (!author.equals(tweetIdAndAuthor.getSecond())) {
-						addEdge(author, tweetIdAndAuthor.getFirst(), EdgeTypes.EDGE_TYPE_HASHTAG, false);
+						addEdge(author, tweetIdAndAuthor.getFirst(), Edge.Types.EDGE_TYPE_HASHTAG, false);
 					}
 				}
 			}
@@ -587,38 +387,26 @@ public class GraphManager {
 	}
 
 	Set<String> createBasicRetweetEdges(String tweet, long curTweetId) {
-		Set<String> retweets = findRetweetedUsers(tweet);
+		Set<String> retweets = Tweet.findRetweetedUsers(tweet);
 		for (String s : retweets) {
-			addEdge(s, curTweetId, EdgeTypes.EDGE_TYPE_RETWEET, true);
+			addEdge(s, curTweetId, Edge.Types.EDGE_TYPE_RETWEET, true);
 		}
 
 		return retweets;
 	}
 
 	void createBasicAtReplyEdge(String tweet, long curTweetId) {
-		String atReply = findAtReply(tweet);
+		String atReply = Tweet.findAtReply(tweet);
 		if (null != atReply) {
-			addEdge(atReply, curTweetId, EdgeTypes.EDGE_TYPE_AT_REPLY, true);
+			addEdge(atReply, curTweetId, Edge.Types.EDGE_TYPE_AT_REPLY, true);
 		}
 	}
 
 	void createBasicMentionEdges(String tweet, long curTweetId, Set<String> retweetNames) {
-		Set<String> mentions = findMentionedUsers(tweet, retweetNames);
+		Set<String> mentions = Tweet.findMentionedUsers(tweet, retweetNames);
 		for (String s : mentions) {
-			addEdge(s, curTweetId, EdgeTypes.EDGE_TYPE_MENTION, true);
+			addEdge(s, curTweetId, Edge.Types.EDGE_TYPE_MENTION, true);
 		}
-	}
-
-	private Set<String> findHashTags(String tweet) {
-		Matcher m = hashTagRegExPattern.matcher(tweet);
-
-		HashSet<String> hashes = new HashSet<String>();
-
-		while (m.find()) {
-			hashes.add(m.group().substring(2).toLowerCase());
-		}
-
-		return hashes;
 	}
 
 	//TODO: add comment separators to delineate which parts of the code are for which purpose
@@ -627,7 +415,7 @@ public class GraphManager {
 			Map<Long,Double> updatedTweetScores, double totalEdgeWeight) {
 
 		for (Pair<Integer,Long> t : edgeTypeAndDest) {
-			double chanceOfGoingToTweet = (idToEdgeType[t.getFirst()].probability() / totalEdgeWeight);
+			double chanceOfGoingToTweet = (Edge.idToEdgeType[t.getFirst()].probability() / totalEdgeWeight);
 			double scoreEffectFromThisEdge = chanceOfGoingToTweet * userScore * lambdaTweets;
 
 			Long tweetId = t.getSecond();
@@ -647,7 +435,7 @@ public class GraphManager {
 			Map<String,Double> updatedUserScores, double totalEdgeWeight) {
 
 		for (Pair<Integer,String> t : edgeTypeAndDest) {
-			double chanceOfGoingToUser = idToEdgeType[t.getFirst()].probability() / totalEdgeWeight;
+			double chanceOfGoingToUser = Edge.idToEdgeType[t.getFirst()].probability() / totalEdgeWeight;
 			double scoreEffectFromThisEdge = chanceOfGoingToUser * tweetScore * lambdaUsers;
 
 			String userName = t.getSecond();
@@ -684,17 +472,17 @@ public class GraphManager {
 		//Holds a record of the scores of all the tweets that we've updated the score for
 		Map<Long,Double> updatedTweetScores = new HashMap<Long,Double>();
 
-		Set<Pair<Integer,Long>> currentUserEdgeTypesAndDestinations = new HashSet<Pair<Integer,Long>>();
+		Set<Pair<Integer,Long>> currentUserTypesAndDestinations = new HashSet<Pair<Integer,Long>>();
 		
 		while (null != (userName = database.getNextNameFromCursor())) {			
 			if (!userName.equals(lastUserName) && (lastUserName != null)) {
-				if (currentUserEdgeTypesAndDestinations.isEmpty()) {
+				if (currentUserTypesAndDestinations.isEmpty()) {
 					scoreTotalFromVerticesWithNoExit += lastUserScore;
 				}
 				else {
-					updateTweetsFromUser(lastUserName, lastUserScore, currentUserEdgeTypesAndDestinations,
+					updateTweetsFromUser(lastUserName, lastUserScore, currentUserTypesAndDestinations,
 							updatedTweetScores,lastUserTotalEdgeWeight);
-					currentUserEdgeTypesAndDestinations.clear();
+					currentUserTypesAndDestinations.clear();
 					lastUserTotalEdgeWeight = 0;
 				}
 			}
@@ -704,9 +492,9 @@ public class GraphManager {
 				throw new RuntimeException("Error retrieving tweetId while calculating tweet scores!");
 			}
 
-			EdgeTypes type = idToEdgeType[database.getEdgeTypeFromCurrentCursorPos()];
-			if (type.userToTweetDir) {
-				if (currentUserEdgeTypesAndDestinations.add(new Pair<Integer,Long>(
+			Edge.Types type = Edge.idToEdgeType[database.getEdgeTypeFromCurrentCursorPos()];
+			if (type.userToTweetDir()) {
+				if (currentUserTypesAndDestinations.add(new Pair<Integer,Long>(
 						Integer.valueOf(type.id()),
 						Long.valueOf(tweetId)))) {
 					lastUserTotalEdgeWeight += type.probability();
@@ -718,11 +506,11 @@ public class GraphManager {
 		}
 
 		//And update the last tweet
-		if (currentUserEdgeTypesAndDestinations.isEmpty()) {
+		if (currentUserTypesAndDestinations.isEmpty()) {
 			scoreTotalFromVerticesWithNoExit += lastUserScore;
 		}
 		else {
-			updateTweetsFromUser(lastUserName, lastUserScore, currentUserEdgeTypesAndDestinations, updatedTweetScores,
+			updateTweetsFromUser(lastUserName, lastUserScore, currentUserTypesAndDestinations, updatedTweetScores,
 					lastUserTotalEdgeWeight);
 		}
 
@@ -751,18 +539,18 @@ public class GraphManager {
 		//Holds a record of the scores of all the users that we've updated the score for
 		Map<String,Double> updatedUserScores = new HashMap<String,Double>();
 
-		Set<Pair<Integer,String>> currentTweetEdgeTypesAndDestinations = new HashSet<Pair<Integer,String>>();
+		Set<Pair<Integer,String>> currentTweetTypesAndDestinations = new HashSet<Pair<Integer,String>>();
 		
 		while (-1 != (tweetId = database.getNextTweetIdFromCursor())) {
 
 			if ((lastTweetId != tweetId) && (lastTweetId != -1)) {
-				if (currentTweetEdgeTypesAndDestinations.isEmpty()) {
+				if (currentTweetTypesAndDestinations.isEmpty()) {
 					scoreTotalFromVerticesWithNoExit += lastTweetScore;
 				}
 				else {
-					updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetEdgeTypesAndDestinations,
+					updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetTypesAndDestinations,
 							updatedUserScores, lastUserTotalEdgeWeight);
-					currentTweetEdgeTypesAndDestinations.clear();
+					currentTweetTypesAndDestinations.clear();
 					lastUserTotalEdgeWeight = 0;
 				}
 			}
@@ -772,10 +560,10 @@ public class GraphManager {
 				throw new RuntimeException("Error retrieving userId while calculating user scores!");
 			}
 
-			EdgeTypes type = idToEdgeType[database.getEdgeTypeFromCurrentCursorPos()];
+			Edge.Types type = Edge.idToEdgeType[database.getEdgeTypeFromCurrentCursorPos()];
 
-			if (type.tweetToUserDir) {
-				if (currentTweetEdgeTypesAndDestinations.add(new Pair<Integer,String>(
+			if (type.tweetToUserDir()) {
+				if (currentTweetTypesAndDestinations.add(new Pair<Integer,String>(
 						Integer.valueOf(type.id()),
 						userName))) {
 					lastUserTotalEdgeWeight += type.probability();
@@ -787,11 +575,11 @@ public class GraphManager {
 		}
 
 		//And update the last user
-		if (currentTweetEdgeTypesAndDestinations.isEmpty()) {
+		if (currentTweetTypesAndDestinations.isEmpty()) {
 			scoreTotalFromVerticesWithNoExit += lastTweetScore;
 		}
 		else {
-			updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetEdgeTypesAndDestinations,
+			updateUsersFromTweet(lastTweetId, lastTweetScore, currentTweetTypesAndDestinations,
 					updatedUserScores, lastUserTotalEdgeWeight);
 		}
 
@@ -846,7 +634,6 @@ public class GraphManager {
 			double score = 0;
 
 			for (Integer i : overlap) {
-				//A future improvement might test to see if doing this without the log improves the results at all
 				score += 1 / Math.log10(i.intValue());
 			}
 
@@ -895,7 +682,7 @@ public class GraphManager {
 			combinedTweet += " " + tweet;
 		}
 
-		Set<String> retweetedUsers = findRetweetedUsers(combinedTweet);
+		Set<String> retweetedUsers = Tweet.findRetweetedUsers(combinedTweet);
 
 		if (retweetedUsers.size() > 5) {
 			//Our combined document for comparison will be all of these people's tweets, if there are enough of them
@@ -904,7 +691,7 @@ public class GraphManager {
 		else {
 			Date d1 = new Date();
 			System.out.println("Start acquiring cursor for all follower edge tweets at " + d1);
-			database.acquireCursorForAllFollowerEdgeTweets(distinguishedUser, EdgeTypes.EDGE_TYPE_FOLLOWER.id());
+			database.acquireCursorForAllFollowerEdgeTweets(distinguishedUser, Edge.Types.EDGE_TYPE_FOLLOWER.id());
 			Date d2 = new Date();
 			System.out.println("Finish acquiring cursor for all follower edge tweets at " + d2 + 
 					" -- Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
@@ -922,13 +709,6 @@ public class GraphManager {
 				combinedTweet += " " + tweet;
 			}
 		}
-
-		//TODO: remove this
-		/*
-		if (combinedTweet.equals("")) {
-			database.setTweetScoresToEven();
-			return;
-		}*/
 		
 		combinedTweet = combinedTweet.replaceAll("RT", "");
 		combinedTweet = combinedTweet.replaceAll("rt", "");
@@ -1049,7 +829,7 @@ public class GraphManager {
 					" seconds");
 			updateUserScores();
 			d2 = new Date();
-			System.out.println("time after tweetUpdates is " + d2 + " -- roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
+			System.out.println("time after userUpdates is " + d2 + " -- roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
 					" seconds");
 		} while (++iterations < MAX_ITERATIONS);//*/
 
@@ -1061,7 +841,7 @@ public class GraphManager {
 		System.out.println("LambdaTweets was " + lambdaTweets + " and lambdaUsers was " + lambdaUsers);
 	}
 
-	private void addEdge(String userName, long tweetId, EdgeTypes type, boolean createUserIfNeeded) {
+	private void addEdge(String userName, long tweetId, Edge.Types type, boolean createUserIfNeeded) {
 		if (userName == null) {
 			return;
 		}
@@ -1093,7 +873,7 @@ public class GraphManager {
 			}
 			
 			//addEdge creates the user if needed
-			addEdge(tweet.getUser(),tweet.id, EdgeTypes.EDGE_TYPE_AUTHORSHIP, true);
+			addEdge(tweet.getUser(),tweet.id, Edge.Types.EDGE_TYPE_AUTHORSHIP, true);
 
 			Set<String> retweets = createBasicRetweetEdges(tweet.getTweet(), tweet.id);
 			createBasicAtReplyEdge(tweet.getTweet(), tweet.id);

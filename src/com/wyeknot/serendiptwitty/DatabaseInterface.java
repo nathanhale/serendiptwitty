@@ -10,8 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.wyeknot.serendiptwitty.GraphManager.Edge;
-
 
 //Not thread safe!!
 
@@ -282,29 +280,6 @@ public class DatabaseInterface {
 
 			//Connects the tweets of the person being retweeted/mentioned to the followers of the retweeter/mentioner
 
-			//This selects all their tweets
-			//SELECT * FROM edges E WHERE E.type=[edgeTypeAuthorship] AND E.name=[retweetee]
-			//T
-
-			//This gets the user vertices for all of the followers of the retweeter
-			//SELECT U.* FROM user_vertices U, namenetwork N WHERE N.username=[retweeter] AND N.followername=U.name;
-			//U
-
-			//TODO: remove the comment from here before putting it in the dissertation
-
-			/*
-			 SELECT T.tweetid, U.name FROM 
-			    (SELECT * FROM edges E WHERE E.type=? AND E.name=?) T,
-			    (SELECT U.* FROM user_vertices U, namenetwork N WHERE N.username=? AND N.followername=U.name) U 
-			  EXCEPT
-			  SELECT T.tweetid, U.name FROM
-			    (SELECT * FROM edges E WHERE E.type=? AND E.name=?) T,
-			    (SELECT U.* FROM user_vertices U, namenetwork N WHERE N.username=? AND N.followername=U.name) U, edges E
-
-			    WHERE T.tweetid=E.tweetid AND U.name=E.name AND E.type=?;
-			 */
-
-			//curInternalStatement = dbConnection.prepareStatement("SELECT T.tweetid, U.name FROM (SELECT * FROM edges E WHERE E.type=? AND E.name=?) T, (SELECT U.* FROM user_vertices U, namenetwork N WHERE N.username=? AND N.followername=U.name) U;",
 			curInternalStatement = dbConnection.prepareStatement("SELECT T.tweetid, U.name FROM (SELECT tweetid FROM tweet_vertices WHERE name=?) T, (SELECT U.name FROM user_vertices U, namenetwork N WHERE N.username=? AND N.followername=U.name) U;",
 					ResultSet.TYPE_FORWARD_ONLY,
 					ResultSet.CONCUR_READ_ONLY);
@@ -568,7 +543,6 @@ public class DatabaseInterface {
 
 			for (Long tweetId : scores.keySet()) {
 				if (null == st) {
-					//st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(? + (original_score * ?)) WHERE tweetid=? AND ABS(score - (? + (original_score * ?))) > 0;");
 					st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(score + ?) WHERE tweetid=?;");
 					curBatchCount = 0;
 				}
@@ -617,7 +591,6 @@ public class DatabaseInterface {
 
 			for (String userName : scores.keySet()) {
 				if (null == st) {
-					//st = dbConnection.prepareStatement("UPDATE user_vertices SET score=(? + (original_score * ?)) WHERE name=? AND ABS(score - (? + (original_score * ?))) > 0;");
 					st = dbConnection.prepareStatement("UPDATE user_vertices SET score=(score + ?) WHERE name=?;");
 					curBatchCount = 0;
 				}
@@ -858,19 +831,6 @@ public class DatabaseInterface {
 	void setTweetScoresAndOriginalScoresToZero() {
 		try {
 			PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=0, original_score=0;");
-			st.executeUpdate();
-			st.close();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
-
-	//TODO: remove this
-	void setTweetScoresToEven() {
-		try {
-			PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(1.0 / ?), original_score=(1.0 / ?);");
-			st.setDouble(1, Recommender.NUM_TWEETS_TO_INDEX);
-			st.setDouble(2, Recommender.NUM_TWEETS_TO_INDEX);
 			st.executeUpdate();
 			st.close();
 		} catch (Exception e) {
