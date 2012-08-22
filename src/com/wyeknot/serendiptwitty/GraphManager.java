@@ -46,7 +46,7 @@ public class GraphManager {
 	private static final int MAX_ITERATIONS = 10;
 
 	//Values closer to 0 put more weight on the original score
-	private static final double lambdaUsers = 0.8;
+	private static final double lambdaUsers = 0.7;
 	private static final double lambdaTweets = 0.9;
 
 	private static final double MAX_USER_SCORE_MULTIPLIER = 1.5;
@@ -78,7 +78,6 @@ public class GraphManager {
 				usersInTweets.add(user);
 			}
 
-			Date d1 = new Date();
 			tweetsParser.indexTweets(Recommender.tweetDataPath, Recommender.NUM_TWEETS_TO_INDEX);
 
 			if (userBatch.size() > 0) {
@@ -104,57 +103,26 @@ public class GraphManager {
 			}
 
 			
-			Date d2 = new Date();
-			System.out.println("Finished creating the edges at " + d2 + 
-					", " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
-			System.out.println("Now cluster");
-			
 			database.clusterEdges();
 			database.clusterTweetsById();
 			
-			System.out.println("Finished clustering at " + d2 + 
-					", " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
-			System.out.println("Now create edges_tweetids");
-			
 			database.createAndClusterEdgesTweetIds();
 			database.analyzeTables();
-
-
-			System.out.println("Started creating the graph at " + d1 + " and finished at " + d2);
-			System.out.println("Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
-
-			//Could create the indexes on the edges in the code here, or could do it when the tables are created
 		}
 	}
 
 	private void createFollowerRetweetAndMentionEdges() {
-		System.out.println("create Follower, Retweet, And Mention Edges!");
 
 		database.acquireCursorForTweetVertices();
 
 		String tweet = null;
-
-		Date d1 = new Date();
-		System.out.println("Start at " + d1);
-
-		int numTweets = 0;
-
 		List<Long> curUserTweetIds = new ArrayList<Long>();
 		String lastUser = null;
 
 		while (null != (tweet = database.getNextTweetFromCursor())) {
 
-			numTweets++;
-
 			String tweeter = database.getNameFromCurrentCursorPos();
 			long tweetId = database.getTweetIdFromCurrentCursorPos();
-
-			if ((numTweets % 1000) == 0) {
-				Date d2 = new Date();
-				System.out.print("tweet " + numTweets + " by " + tweeter);
-				System.out.println("  ~" + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
-				System.out.flush();
-			}
 
 			if (!tweeter.equals(lastUser) && (lastUser != null)) {
 				createFollowerEdgesForUser(lastUser,curUserTweetIds);
@@ -180,11 +148,6 @@ public class GraphManager {
 				}
 			}
 		}
-
-		Date d2 = new Date();
-		System.out.println("Finished creating Follower, Retweet, And Mention Edges!");
-		System.out.println("Started at " + d1 + " and finished at " + d2);
-		System.out.println("Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
 	}
 
 	private void createFollowerEdgesForUser(String user, List<Long> curUserTweetIds) {		
@@ -272,20 +235,9 @@ public class GraphManager {
 
 		String tweet = null;
 
-		int numTweets = 0;
-		Date d1 = new Date();
-
-		System.out.println("Start finding content edges at " + d1);
-
 		while (null != (tweet = database.getNextTweetFromCursor())) {
 			String tweeter = database.getNameFromCurrentCursorPos();
 			Long tweetId = Long.valueOf(database.getTweetIdFromCurrentCursorPos());
-
-			if ((++numTweets % 1000) == 0) {
-				Date d2 = new Date();
-				System.out.println("Detecting entities for tweet " + numTweets + " tweetId is " + tweetId + " -- " + d2);
-				System.out.println("Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds so far");
-			}
 
 			List<List<CoreLabel>> out = classifier.classify(tweet);
 			for (List<CoreLabel> sentence : out) {
@@ -351,8 +303,8 @@ public class GraphManager {
 			}
 		}
 
-		System.out.println("There were " + entities.size() + " entities");
-
+		//Evaluate the entities
+		
 		for (Pair<List<Pair<Long,String>>,Set<String>> edges : entities.values()) {
 			List<Pair<Long,String>> tweetIds = edges.getFirst();
 			Set<String> authors = edges.getSecond();
@@ -367,7 +319,8 @@ public class GraphManager {
 			}
 		}
 
-		System.out.println("There were " + hashtags.size() + " hashtags");
+
+		//Evaluate the hashtags
 
 		for (Pair<List<Pair<Long,String>>,Set<String>> edges : hashtags.values()) {
 			List<Pair<Long,String>> tweetIds = edges.getFirst();
@@ -381,11 +334,9 @@ public class GraphManager {
 				}
 			}
 		}
-
-		Date d2 = new Date();
-		System.out.println("Finished adding content edges at " + d2 + "\nRoughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds passed in that time");
 	}
 
+	
 	Set<String> createBasicRetweetEdges(String tweet, long curTweetId) {
 		Set<String> retweets = Tweet.findRetweetedUsers(tweet);
 		for (String s : retweets) {
@@ -452,13 +403,7 @@ public class GraphManager {
 	}
 
 	private void updateTweetScores() {
-
-		Date d1 = new Date();
-		System.out.println("acquireCursorForUpdating Tweet Scores at " + d1);
 		database.acquireCursorForUpdatingTweetScores();
-		Date d2 = new Date();
-		System.out.println("acquired cursor at " + d2 + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + 
-				" seconds so far");
 
 		long tweetId = -1;
 
@@ -514,18 +459,12 @@ public class GraphManager {
 					lastUserTotalEdgeWeight);
 		}
 
-		System.out.println("Time before updating tweet scores is " + (new Date()));		
 		database.updateBaseTweetScores(lambdaTweets, scoreTotalFromVerticesWithNoExit);
 		database.updateTweetScores(updatedTweetScores);
 	}
 
 	private void updateUserScores() {
-		Date d1 = new Date();
-		System.out.println("acquireCursorForUpdating User Scores at " + d1);
 		database.acquireCursorForUpdatingUserScores();
-		Date d2 = new Date();
-		System.out.println("acquired cursor at " + d2 + " after roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + 
-				" seconds so far");
 
 		String userName = null;
 
@@ -583,17 +522,12 @@ public class GraphManager {
 					updatedUserScores, lastUserTotalEdgeWeight);
 		}
 
-		System.out.println("Time before updating user scores is " + (new Date()));
-
 		database.updateBaseUserScores(lambdaUsers, scoreTotalFromVerticesWithNoExit);
 		database.updateUserScores(updatedUserScores);
 	}
 
-	//TODO: get rid of all of the timing printouts
 
 	private void initializeUserScores() {
-
-		System.out.println("Initializing scores... " + new Date());
 
 		database.acquireCursorForInitializingUserScores();
 
@@ -606,10 +540,6 @@ public class GraphManager {
 		 * 
 		 * gamma(z) = followers user z
 		 */
-
-		int numUsers = 0;
-
-		Date d1 = new Date();
 
 		double maxScore = 0;
 		
@@ -637,14 +567,6 @@ public class GraphManager {
 				score += 1 / Math.log10(i.intValue());
 			}
 
-			if ((++numUsers % 1000) == 0) {
-				System.out.print("\tUser: " + numUsers + " (" + userName + "): ");
-				Date d2 = new Date();
-				System.out.print("roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
-						" seconds  so far -- score for this user is ");
-				System.out.println(score);
-			}
-
 			scoreBatch.put(userName, Double.valueOf(score));
 			if (scoreBatch.size() > DatabaseInterface.MAX_DATABASE_BATCH_SIZE) {
 				database.setOriginalUserScoreBatch(scoreBatch);
@@ -660,9 +582,6 @@ public class GraphManager {
 		database.setOriginalUserScoreBatch(scoreBatch);
 
 		//The values will be normalized elsewhere
-
-		Date d2 = new Date();
-		System.out.println("\t\tRoughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
 	}
 
 	private void initializeTweetScores() {
@@ -689,12 +608,7 @@ public class GraphManager {
 			database.acquireCursorForTweetsOfUsers(retweetedUsers);
 		}
 		else {
-			Date d1 = new Date();
-			System.out.println("Start acquiring cursor for all follower edge tweets at " + d1);
 			database.acquireCursorForAllFollowerEdgeTweets(distinguishedUser, Edge.Types.EDGE_TYPE_FOLLOWER.id());
-			Date d2 = new Date();
-			System.out.println("Finish acquiring cursor for all follower edge tweets at " + d2 + 
-					" -- Roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) + " seconds");
 		}
 
 		combinedTweet = "";
@@ -712,8 +626,6 @@ public class GraphManager {
 		
 		combinedTweet = combinedTweet.replaceAll("RT", "");
 		combinedTweet = combinedTweet.replaceAll("rt", "");
-		
-		System.out.println("reference doc is " + combinedTweet);
 		
 		Document referenceDoc = new Document();
 		referenceDoc.add(new Field("tweet", combinedTweet, Field.Store.YES, Field.Index.ANALYZED, TermVector.YES));
@@ -777,10 +689,6 @@ public class GraphManager {
 					database.setOriginalTweetScoreBatch(scoreBatch);
 					scoreBatch.clear();
 				}
-
-				if ((ii % 1000) == 0) {
-					System.out.println("Initializing Tweet " + ii);
-				}
 			}
 			
 			if (!scoreBatch.isEmpty()) {
@@ -819,18 +727,9 @@ public class GraphManager {
 
 		do {
 			System.out.println("Iteration #" + (iterations + 1));
-			d2 = new Date();
-			System.out.println("\tAt the start of this iteration, roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
-					" seconds");
 
 			updateTweetScores();
-			d2 = new Date();
-			System.out.println("time after tweetUpdates is " + d2 + " -- roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
-					" seconds");
 			updateUserScores();
-			d2 = new Date();
-			System.out.println("time after userUpdates is " + d2 + " -- roughly " + ((float)(d2.getTime() - d1.getTime()) / 1000.0) +
-					" seconds");
 		} while (++iterations < MAX_ITERATIONS);//*/
 
 		d2 = new Date();

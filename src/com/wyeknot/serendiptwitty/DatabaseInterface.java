@@ -549,10 +549,6 @@ public class DatabaseInterface {
 
 				double score = scores.get(tweetId);
 
-				if (tweetId.longValue() == 4321) {
-					System.out.println("4321 being updated to a score of " + score);
-				}
-
 				st.setDouble(1, score);
 				st.setLong(2, tweetId);
 
@@ -596,11 +592,6 @@ public class DatabaseInterface {
 				}
 
 				double score = scores.get(userName);
-
-				//TODO: don't forget to remove this debug printout
-				if (userName.equals("chrissaad")) {
-					System.out.println("chrissaad being updated to a score of " + score);
-				}
 
 				st.setDouble(1, score);
 				st.setString(2, userName);

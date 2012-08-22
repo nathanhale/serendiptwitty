@@ -53,9 +53,7 @@ public class Recommender {
 	
 	public void recommend() {
 		HashSet<String> otherDistinguishedUsers = new HashSet<String>(2);
-		otherDistinguishedUsers.add("jnwhiteh");
-		otherDistinguishedUsers.add("chrissaad");
-		graph = new GraphManager(database, indexMgr, "tom_harper", otherDistinguishedUsers);
+		graph = new GraphManager(database, indexMgr, "chrissaad", otherDistinguishedUsers);
 		graph.createGraph();
 		graph.runAlgorithm();
 	}
