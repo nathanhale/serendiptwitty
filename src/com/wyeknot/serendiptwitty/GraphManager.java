@@ -65,6 +65,12 @@ public class GraphManager {
 		edgeBatch = new HashSet<Edge>();
 	}
 
+	
+	/*
+	 * 
+	 * Code for creating the graph, including edges and vertices
+	 *   
+	 */
 
 	public void createGraph() {
 		if (!database.tableHasRows("edges")) {
@@ -216,15 +222,17 @@ public class GraphManager {
 		AbstractSequenceClassifier<CoreLabel> classifier = CRFClassifier.getClassifierNoExceptions(serializedClassifier);
 
 		/*
-		 * These HashMaps have the entity/hashtag as the key, and then for each hashtag there
-		 * is a List of tweetId/author pairs and a set of authors who have used this entity/hashtag.
+		 * These HashMaps have the entity/hashtag as the key, and then for
+		 * each hashtag there is a List of tweetId/author pairs and a set
+		 * of authors who have used this entity/hashtag.
 		 * 
-		 *  We need to keep track of the tweet id AND the author of each tweet because we don't
-		 *  want to create a link between the author's own tweet and their vertex.
+		 * We need to keep track of the tweet id AND the author of each
+		 * tweet because we don't want to create a link between the author's
+		 * own tweet and their vertex.
 		 *  
-		 *  Note: If we have a set of tweetids instead of a list then we can prevent
-		 *  duplicate edges, but I think that the duplicate edges add extra value, so I don't
-		 *  plan to implement it that way.
+		 * Note: If we have a set of tweetids instead of a list then we can
+		 * prevent duplicate edges, but I think that the duplicate edges
+		 * add extra value, so I don't plan to implement it that way.
 		 */		
 		HashMap<String , Pair< List<Pair<Long,String>> , Set<String> > > entities =
 				new HashMap<String,Pair<List<Pair<Long,String>>,Set<String>>>();
@@ -274,8 +282,8 @@ public class GraphManager {
 					 * it isn't BOTH preceded and followed by another entity
 					 */
 
-					/* Can see if this words .beginPosition is one above the last word's .endPosition
-					 * to ignore spaces. For now I'm not going to. This would eliminate some matches
+					/* Can see if this words .beginPosition is one above the
+					 * last word's .endPosition to ignore spaces.
 					 */
 				}
 			}
@@ -360,7 +368,12 @@ public class GraphManager {
 		}
 	}
 
-	//TODO: add comment separators to delineate which parts of the code are for which purpose
+	
+	/*
+	 * 
+	 * Code for updating the scores
+	 * 
+	 */
 
 	private void updateTweetsFromUser(String userName, double userScore, Set<Pair<Integer,Long>> edgeTypeAndDest,
 			Map<Long,Double> updatedTweetScores, double totalEdgeWeight) {
@@ -584,6 +597,13 @@ public class GraphManager {
 		//The values will be normalized elsewhere
 	}
 
+	/*
+	 * 
+	 * Code for initializing tweet and user scores
+	 * 
+	 */
+	
+	
 	private void initializeTweetScores() {
 
 		/* If the distinguished user has retweeted anything, then those people are most
@@ -638,8 +658,9 @@ public class GraphManager {
 		database.setTweetScoresAndOriginalScoresToZero();
 
 		try {
-			/* To ensure that stemming and stop words are identical to the main lucene index, we index
-			 * the reference document in the same way, but in RAM and with only one document.
+			/* To ensure that stemming and stop words are identical to
+			 * the main lucene index, we index the reference document in
+			 * the same way, but in RAM and with only one document.
 			 * 
 			 * This is used purely to get the term frequencies using Lucene.
 			 */
@@ -703,6 +724,13 @@ public class GraphManager {
 			throw new RuntimeException("Couldn't initialize tweet scores!");
 		}
 	}
+	
+	/*
+	 * 
+	 * Code for running the actual algorithm
+	 * 
+	 */
+	
 
 	public void runAlgorithm() {
 		System.out.println("Running the Co-HITS algorithm!");
@@ -740,6 +768,12 @@ public class GraphManager {
 		System.out.println("LambdaTweets was " + lambdaTweets + " and lambdaUsers was " + lambdaUsers);
 	}
 
+	/*
+	 * 
+	 * Code for adding edges
+	 * 
+	 */
+	
 	private void addEdge(String userName, long tweetId, Edge.Types type, boolean createUserIfNeeded) {
 		if (userName == null) {
 			return;
@@ -761,6 +795,14 @@ public class GraphManager {
 			edgeBatch.clear();
 		}
 	}
+	
+	
+	/*
+	 * 
+	 * Implementation for the tweets parser which is used to create
+	 * the edges.
+	 * 
+	 */
 
 	private StanfordTweetIndexer.StanfordParser tweetsParser = new StanfordTweetIndexer.StanfordParser() {
 

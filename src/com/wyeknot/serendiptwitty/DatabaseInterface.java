@@ -12,7 +12,6 @@ import java.util.Set;
 
 
 //Not thread safe!!
-
 public class DatabaseInterface {
 
 	private Connection dbConnection;
@@ -261,8 +260,6 @@ public class DatabaseInterface {
 	public void acquireInternalCursorForFolloweesEdges(String retweetee, String retweeter, int edgeTypeAuthorship, int edgeTypeFollowees) {
 		try {
 			closeInternalCursor();
-			//curInternalStatement = dbConnection.prepareStatement("SELECT E.tweetid FROM namenetwork_followers F, edges E WHERE E.type=? AND E.name=F.username AND F.followername=? EXCEPT SELECT E.tweetid FROM edges E WHERE E.type=? AND E.name=?;",
-			//curInternalStatement = dbConnection.prepareStatement("SELECT E.tweetid FROM namenetwork_followers F, edges E WHERE E.type=? AND E.name=F.username AND F.followername=?;",
 			curInternalStatement = dbConnection.prepareStatement("SELECT T.tweetid FROM namenetwork_followers F, tweet_vertices T WHERE T.name=F.username AND F.followername=?;",
 					ResultSet.TYPE_FORWARD_ONLY,
 					ResultSet.CONCUR_READ_ONLY);
@@ -277,8 +274,6 @@ public class DatabaseInterface {
 	public void acquireInternalCursorForFollowersEdges(String retweetee, String retweeter, int edgeTypeAuthorship, int edgeTypeFollowers) {
 		try {
 			closeInternalCursor();
-
-			//Connects the tweets of the person being retweeted/mentioned to the followers of the retweeter/mentioner
 
 			curInternalStatement = dbConnection.prepareStatement("SELECT T.tweetid, U.name FROM (SELECT tweetid FROM tweet_vertices WHERE name=?) T, (SELECT U.name FROM user_vertices U, namenetwork N WHERE N.username=? AND N.followername=U.name) U;",
 					ResultSet.TYPE_FORWARD_ONLY,
@@ -431,8 +426,6 @@ public class DatabaseInterface {
 		}
 	}
 
-	//UPDATE user_vertices SET score=(original_score / S.sum), dg_score=0, original_score=(original_score / S.sum) FROM (SELECT SUM(original_score) FROM user_vertices) S;
-	//UPDATE tweet_vertices SET score=(original_score / S.sum), dg_score=0, original_score=(original_score / S.sum) FROM (SELECT SUM(original_score) FROM user_vertices) S;
 
 	public void resetScores() {
 		try {
@@ -1086,48 +1079,3 @@ public class DatabaseInterface {
 		}
 	}
 }
-
-
-//From updateUserScore
-//PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices SET score=(? + (original_score * ?) + (dg_score * ?)) WHERE tweetid=? AND ABS(score - (? + (original_score * ?) + (dg_score * ?))) > 0;");
-//st.setDouble(3, lambdaTweet); for the dg_score
-//st.setDouble(7, lambdaTweet); for the dg_score
-
-
-/*public boolean updateTweetDoppelgangerScore(long tweetId, double score) {
-try {			
-	PreparedStatement st = dbConnection.prepareStatement("UPDATE tweet_vertices SET dg_score=? WHERE tweetid=?;");
-	st.setDouble(1, score);
-	st.setLong(2, tweetId);
-	int rowsUpdated = st.executeUpdate();
-	if (1 != rowsUpdated) {
-		return false;
-	}
-
-	st.close();
-
-	return true;
-} catch (Exception e) {
-	e.printStackTrace();
-	return false;
-}
-}
-
-public boolean updateUserDoppelgangerScore(String name, double score) {
-try {			
-	PreparedStatement st = dbConnection.prepareStatement("UPDATE user_vertices SET dg_score=? WHERE name=?;");
-	st.setDouble(1, score);
-	st.setString(2, name);
-	int rowsUpdated = st.executeUpdate();
-	if (1 != rowsUpdated) {
-		return false;
-	}
-
-	st.close();
-
-	return true;
-} catch (Exception e) {
-	e.printStackTrace();
-	return false;
-}
-}*/
